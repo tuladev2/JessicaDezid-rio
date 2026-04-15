@@ -6,7 +6,7 @@ export default function AdminLayout() {
   return (
     <div className="min-h-screen bg-background">
       <Sidebar />
-      <main className="ml-72 min-h-screen">
+      <main className="lg:ml-72 min-h-screen">
         <TopBar />
         <Outlet />
       </main>

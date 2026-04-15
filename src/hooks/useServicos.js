@@ -237,13 +237,17 @@ export const useServicos = (filters = {}) => {
       }
 
       // Verificar se existem agendamentos vinculados
-      const { count: appointmentsCount } = await supabase
+      const { count: appointmentsCount, error: countError } = await supabase
         .from('appointments')
         .select('*', { count: 'exact', head: true })
         .eq('service_id', id);
 
+      if (countError) {
+        throw new Error(`Erro ao verificar agendamentos: ${countError.message}`);
+      }
+
       if (appointmentsCount > 0) {
-        throw new Error('Não é possível excluir este serviço pois existem agendamentos vinculados. Considere desativá-lo.');
+        throw new Error(`Não é possível excluir este serviço pois existem ${appointmentsCount} ${appointmentsCount === 1 ? 'agendamento vinculado' : 'agendamentos vinculados'}. Considere desativá-lo.`);
       }
 
       const { error: deleteError } = await supabase

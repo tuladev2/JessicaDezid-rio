@@ -133,9 +133,27 @@ body {
   grid-template-columns: 80px repeat(7, 1fr);
 }
 
+@media (max-width: 1024px) {
+  .calendar-grid {
+    grid-template-columns: 60px repeat(7, 1fr);
+  }
+}
+
+@media (max-width: 768px) {
+  .calendar-grid {
+    grid-template-columns: 50px repeat(7, 1fr);
+  }
+}
+
 .time-slot {
   height: 100px;
   border-bottom: 1px solid rgba(212, 194, 194, 0.2);
+}
+
+@media (max-width: 768px) {
+  .time-slot {
+    height: 80px;
+  }
 }
 
 /* Custom Shadow for Settings */

@@ -17,25 +17,41 @@
   - Criar `ServicoFilters.jsx` com busca debounced e filtros por categoria/status
   - Implementar lógica de combinação de filtros (AND logic)
   - Adicionar contador de resultados e botão limpar filtros
+
   - _Requirements: 6.1, 6.2, 6.3, 6.4, 6.5, 6.6_
 
-- [ ] 3. Desenvolver modal de criação/edição de serviços
+- [x] 3. Desenvolver modal de criação/edição de serviços
+
+
+
   - Criar `ServicoModal.jsx` com formulário completo e validações
   - Implementar validação em tempo real para todos os campos
   - Adicionar preview de imagem e formatação de moeda
+
   - _Requirements: 2.1, 2.2, 2.3, 2.4, 3.1, 3.2, 3.3, 8.1, 8.2, 8.3, 8.4, 8.5_
 
-- [ ] 4. Implementar operações de exclusão e toggle de status
+- [x] 4. Implementar operações de exclusão e toggle de status
+
+
   - Criar modal de confirmação para exclusão com verificação de agendamentos
   - Implementar toggle de ativação/desativação com feedback visual
   - Adicionar tratamento de erros específicos para cada operação
   - _Requirements: 4.1, 4.2, 4.3, 4.4, 5.1, 5.2, 5.3, 5.4, 5.5_
 
-- [ ] 5. Desenvolver componente de tabela responsiva
+- [x] 5. Desenvolver componente de tabela responsiva
+
+
+
+
+
+
   - Criar `ServicosTable.jsx` para desktop com todas as colunas
   - Implementar `ServicoCard.jsx` para visualização mobile
   - Adicionar skeleton loaders e estados de loading
   - _Requirements: 1.1, 1.2, 1.3, 7.1, 7.2, 7.3, 7.5_
+
+
+
 
 - [ ] 6. Integrar todos os componentes na página principal
   - Refatorar `src/pages/Servicos.jsx` para usar os novos componentes

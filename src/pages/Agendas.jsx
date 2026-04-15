@@ -1,208 +1,499 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../lib/supabase';
-import { appointments as mockAppointments, nextAppointment } from '../data/mockData';
+import AgendamentoModal from '../components/AgendamentoModal';
 
 const days = ['Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado', 'Domingo'];
-const daysDatesShort = ['14', '15', '16', '17', '18', '19', '20'];
 const hours = ['08:00', '09:00', '10:00', '11:00', '12:00', '13:00', '14:00', '15:00', '16:00', '17:00', '18:00'];
 
-// Helper to convert DB time (HH:MM) to pixel position (08:00 = 0px top, 09:00 = 60px)
+// Helper para converter horário em posição em pixels
 const timeToPixels = (timeStr) => {
   if (!timeStr) return 0;
   const [h, m] = timeStr.split(':').map(Number);
   const startH = 8; // 08:00
   if (h < startH) return 0;
-  // 60 pixels per hour
-  return ((h - startH) * 60) + m;
+  return ((h - startH) * 60) + m; // 60px por hora
 };
 
+// Helper para obter datas da semana
+const getWeekDates = (weekOffset = 0) => {
+  const today = new Date();
+  const currentWeek = new Date(today.setDate(today.getDate() - today.getDay() + 1 + (weekOffset * 7)));
+  const weekDates = [];
+  
+  for (let i = 0; i < 7; i++) {
+    const date = new Date(currentWeek);
+    date.setDate(currentWeek.getDate() + i);
+    weekDates.push(date);
+  }
+  
+  return weekDates;
+};
+
+// Skeleton para loading
+const CalendarSkeleton = () => (
+  <div className="animate-pulse">
+    {hours.map((hour) => (
+      <div key={hour} className="calendar-grid">
+        <div className="time-slot flex items-start justify-end pr-3 pt-2">
+          <div className="h-3 w-8 bg-surface-container rounded"></div>
+        </div>
+        {days.map((_, di) => (
+          <div key={di} className="time-slot border-l border-outline-variant/10">
+            {Math.random() > 0.7 && (
+              <div className="m-1 h-12 bg-surface-container rounded-lg"></div>
+            )}
+          </div>
+        ))}
+      </div>
+    ))}
+  </div>
+);
+
 export default function Agendas() {
-  const [weekLabel] = useState('14 - 20 Outubro, 2024');
+  const [weekOffset, setWeekOffset] = useState(0);
   const [appointments, setAppointments] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [selectedDate, setSelectedDate] = useState(null);
+  const [selectedTime, setSelectedTime] = useState(null);
+  const [modalOpen, setModalOpen] = useState(false);
+  const [notification, setNotification] = useState(null);
+  const [isMobile, setIsMobile] = useState(false);
+  const [selectedDay, setSelectedDay] = useState(0); // Para mobile
+  const [roomCapacity, setRoomCapacity] = useState({
+    sala01: { current: 0, max: 8 },
+    sala02: { current: 0, max: 8 },
+    sala03: { current: 0, max: 8 }
+  });
 
+  // Detectar mobile
   useEffect(() => {
-    async function fetchAppointments() {
-      try {
-        setLoading(true);
-        // We select the appointment details along with their joined client and service
-        const { data, error } = await supabase
-          .from('appointments')
-          .select(`
-            *,
-            clients(full_name),
-            services(name, duration_minutes)
-          `)
-          .order('appointment_date', { ascending: true })
-          .order('start_time', { ascending: true });
-
-        if (error) throw error;
-
-        if (data && data.length > 0) {
-          const formatted = data.map(apt => {
-            // Rough calculation for drawing
-            const top = timeToPixels(apt.start_time);
-            
-            // Assume 60 minutes if duration is not found
-            const duration = apt.services?.duration_minutes || 60; 
-            const height = duration; // 1 min = 1 px mapped height
-
-            // Determine day index (Mocked to just randomly distribute if exact date parsing isn't active)
-            const d = new Date(apt.appointment_date);
-            let dayIndex = d.getDay() - 1; // 0 = Mon
-            if (dayIndex < 0) dayIndex = 6; // Sunday fix
-
-            return {
-              id: apt.id,
-              name: apt.clients?.full_name || 'Cliente Novo',
-              procedure: apt.services?.name || 'Procedimento',
-              time: `${apt.start_time.substring(0, 5)} - ${apt.end_time ? apt.end_time.substring(0, 5) : '1:00h'}`,
-              day: dayIndex,
-              top: top,
-              height: height,
-              borderColor: 'border-primary',
-            };
-          });
-          setAppointments(formatted);
-        } else {
-          setAppointments(mockAppointments);
-        }
-      } catch (err) {
-        console.warn('Using fallback mock data for Agenda:', err.message);
-        setAppointments(mockAppointments);
-      } finally {
-        setLoading(false);
-      }
-    }
-
-    fetchAppointments();
+    const checkMobile = () => setIsMobile(window.innerWidth < 1024);
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    return () => window.removeEventListener('resize', checkMobile);
   }, []);
 
+  // Calcular datas da semana
+  const weekDates = useMemo(() => getWeekDates(weekOffset), [weekOffset]);
+  
+  // Label da semana
+  const weekLabel = useMemo(() => {
+    const start = weekDates[0];
+    const end = weekDates[6];
+    return `${start.getDate()} - ${end.getDate()} ${start.toLocaleDateString('pt-BR', { month: 'long' })}, ${start.getFullYear()}`;
+  }, [weekDates]);
+
+  // Buscar agendamentos
+  const fetchAppointments = async () => {
+    try {
+      setLoading(true);
+      const startDate = weekDates[0].toISOString().split('T')[0];
+      const endDate = weekDates[6].toISOString().split('T')[0];
+
+      const { data, error } = await supabase
+        .from('appointments')
+        .select(`
+          *,
+          clients(full_name, avatar_url),
+          services(name, duration_minutes, category)
+        `)
+        .gte('appointment_date', startDate)
+        .lte('appointment_date', endDate)
+        .eq('status', 'confirmed')
+        .order('appointment_date', { ascending: true })
+        .order('start_time', { ascending: true });
+
+      if (error) throw error;
+
+      const formatted = (data || []).map(apt => {
+        const aptDate = new Date(apt.appointment_date);
+        const dayIndex = aptDate.getDay() === 0 ? 6 : aptDate.getDay() - 1; // Segunda = 0
+        
+        return {
+          id: apt.id,
+          name: apt.clients?.full_name || 'Cliente',
+          procedure: apt.services?.name || 'Procedimento',
+          time: `${apt.start_time.substring(0, 5)} - ${apt.end_time?.substring(0, 5) || ''}`,
+          day: dayIndex,
+          top: timeToPixels(apt.start_time),
+          height: Math.max(40, (apt.services?.duration_minutes || 60)),
+          borderColor: 'border-primary',
+          avatar: apt.clients?.avatar_url,
+          status: apt.status,
+          room: apt.room || 'sala01'
+        };
+      });
+
+      setAppointments(formatted);
+      
+      // Calcular capacidade das salas
+      const roomCounts = formatted.reduce((acc, apt) => {
+        acc[apt.room] = (acc[apt.room] || 0) + 1;
+        return acc;
+      }, {});
+
+      setRoomCapacity({
+        sala01: { current: roomCounts.sala01 || 0, max: 8 },
+        sala02: { current: roomCounts.sala02 || 0, max: 8 },
+        sala03: { current: roomCounts.sala03 || 0, max: 8 }
+      });
+
+    } catch (err) {
+      console.error('Erro ao buscar agendamentos:', err);
+      showNotification('Erro ao carregar agendamentos', 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchAppointments();
+  }, [weekOffset, weekDates]);
+
+  // Função para mostrar notificações
+  const showNotification = (message, type = 'success') => {
+    setNotification({ message, type });
+    setTimeout(() => setNotification(null), 4000);
+  };
+
+  // Navegar semanas
+  const navigateWeek = (direction) => {
+    setWeekOffset(prev => prev + direction);
+  };
+
+  // Iniciar atendimento
+  const handleStartAttendance = async (appointmentId) => {
+    try {
+      const { error } = await supabase
+        .from('appointments')
+        .update({ status: 'in_progress' })
+        .eq('id', appointmentId);
+
+      if (error) throw error;
+      
+      showNotification('Atendimento iniciado com sucesso!', 'success');
+      fetchAppointments(); // Recarregar dados
+    } catch (err) {
+      console.error('Erro ao iniciar atendimento:', err);
+      showNotification('Erro ao iniciar atendimento', 'error');
+    }
+  };
+
+  // Clicar em espaço vazio da grade
+  const handleGridClick = (dayIndex, hour) => {
+    const selectedDate = weekDates[dayIndex];
+    const [hourNum] = hour.split(':').map(Number);
+    
+    setSelectedDate(selectedDate.toISOString().split('T')[0]);
+    setSelectedTime(`${hourNum.toString().padStart(2, '0')}:00`);
+    setModalOpen(true);
+  };
+
+  // Próximo agendamento
+  const nextAppointment = useMemo(() => {
+    const now = new Date();
+    const today = now.toISOString().split('T')[0];
+    const currentTime = now.toTimeString().substring(0, 5);
+    
+    return appointments.find(apt => {
+      const aptDate = weekDates[apt.day]?.toISOString().split('T')[0];
+      return aptDate === today && apt.time.split(' - ')[0] > currentTime;
+    });
+  }, [appointments, weekDates]);
+
   return (
-    <div className="px-12 py-10">
+    <div className="px-4 lg:px-12 py-6 lg:py-10">
       {/* Header */}
-      <div className="flex items-end justify-between mb-8">
+      <div className="flex flex-col lg:flex-row lg:items-end justify-between mb-6 lg:mb-8 gap-4">
         <div>
           <p className="text-xs tracking-[0.2em] uppercase text-secondary mb-1">Controle de Agenda</p>
-          <h2 className="font-serif text-3xl text-on-surface">Agenda Semanal</h2>
+          <h2 className="font-serif text-2xl lg:text-3xl text-on-surface">
+            {isMobile ? 'Agenda do Dia' : 'Agenda Semanal'}
+          </h2>
         </div>
         <div className="flex items-center gap-4">
-          <button className="w-10 h-10 rounded-full border border-outline-variant/30 flex items-center justify-center hover:bg-primary/5 transition-all">
+          <button 
+            onClick={() => navigateWeek(-1)}
+            className="w-10 h-10 rounded-full border border-outline-variant/30 flex items-center justify-center hover:bg-primary/5 transition-all"
+          >
             <span className="material-symbols-outlined text-sm text-secondary">chevron_left</span>
           </button>
-          <p className="text-sm text-on-surface font-medium">{weekLabel}</p>
-          <button className="w-10 h-10 rounded-full border border-outline-variant/30 flex items-center justify-center hover:bg-primary/5 transition-all">
+          <p className="text-sm text-on-surface font-medium min-w-48 text-center">{weekLabel}</p>
+          <button 
+            onClick={() => navigateWeek(1)}
+            className="w-10 h-10 rounded-full border border-outline-variant/30 flex items-center justify-center hover:bg-primary/5 transition-all"
+          >
             <span className="material-symbols-outlined text-sm text-secondary">chevron_right</span>
           </button>
         </div>
       </div>
 
-      <div className="grid grid-cols-5 gap-6">
-        {/* Calendar - 4 cols */}
-        <div className="col-span-4 bg-surface-container-lowest rounded-2xl editorial-shadow overflow-hidden relative">
+      {/* Notificações Toast */}
+      {notification && (
+        <div className={`
+          fixed top-4 right-4 z-50 p-4 rounded-xl shadow-lg border flex items-center gap-2 min-w-80 max-w-md
+          ${notification.type === 'success' 
+            ? 'bg-green-50 text-green-800 border-green-200' 
+            : 'bg-red-50 text-red-800 border-red-200'
+          }
+        `}>
+          <span className="material-symbols-outlined text-lg">
+            {notification.type === 'success' ? 'check_circle' : 'error'}
+          </span>
+          <span className="flex-1">{notification.message}</span>
+          <button
+            onClick={() => setNotification(null)}
+            className="ml-2 hover:opacity-70 transition-opacity"
+          >
+            <span className="material-symbols-outlined text-sm">close</span>
+          </button>
+        </div>
+      )}
+
+      {/* Layout Principal */}
+      <div className="grid grid-cols-1 lg:grid-cols-5 gap-4 lg:gap-6">
+        {/* Calendário - Mobile: Lista do Dia / Desktop: Grade Semanal */}
+        <div className="lg:col-span-4 bg-surface-container-lowest rounded-2xl editorial-shadow overflow-hidden relative">
           
           {loading && (
             <div className="absolute inset-0 bg-white/40 backdrop-blur-sm z-20 flex items-center justify-center">
-              <span className="material-symbols-outlined animate-spin text-primary text-3xl">refresh</span>
+              <CalendarSkeleton />
             </div>
           )}
 
-          {/* Day Headers */}
-          <div className="calendar-grid border-b border-outline-variant/20">
-            <div className="py-4 px-3"></div>
-            {days.map((day, i) => (
-              <div key={day} className="py-4 px-3 text-center">
-                <p className="text-[10px] tracking-widest uppercase text-secondary">{day.slice(0, 3)}</p>
-                <p className={`text-lg font-light mt-1 ${i === 0 ? 'text-primary font-medium' : 'text-on-surface'}`}>
-                  {daysDatesShort[i]}
-                </p>
-              </div>
-            ))}
-          </div>
-
-          {/* Time Grid */}
-          <div className="relative">
-            {hours.map((hour) => (
-              <div key={hour} className="calendar-grid">
-                <div className="time-slot flex items-start justify-end pr-3 pt-2">
-                  <span className="text-[10px] text-outline">{hour}</span>
-                </div>
-                {days.map((_, di) => (
-                  <div key={di} className="time-slot border-l border-outline-variant/10" />
+          {/* Mobile: Seletor de Dia */}
+          {isMobile && (
+            <div className="border-b border-outline-variant/20 p-4">
+              <div className="flex gap-2 overflow-x-auto">
+                {weekDates.map((date, i) => (
+                  <button
+                    key={i}
+                    onClick={() => setSelectedDay(i)}
+                    className={`flex-shrink-0 px-4 py-2 rounded-lg text-center transition-colors ${
+                      selectedDay === i 
+                        ? 'bg-primary text-on-primary' 
+                        : 'bg-surface-container text-secondary hover:bg-primary/10'
+                    }`}
+                  >
+                    <p className="text-xs font-medium">{days[i].slice(0, 3)}</p>
+                    <p className="text-sm font-light">{date.getDate()}</p>
+                  </button>
                 ))}
               </div>
-            ))}
+            </div>
+          )}
 
-            {/* Appointment Cards */}
-            {appointments.map((apt, i) => (
-              <div
-                key={apt.id || i}
-                className={`absolute rounded-xl p-3 bg-primary/5 border-l-2 ${apt.borderColor} hover:bg-primary/10 transition-colors cursor-pointer block-agenda-item z-10`}
-                style={{
-                  top: `${Math.max(0, apt.top)}px`,
-                  left: `calc(80px + ${Math.max(0, apt.day)} * ((100% - 80px) / 7) + 4px)`,
-                  width: `calc((100% - 80px) / 7 - 8px)`,
-                  height: `${apt.height}px`,
-                }}
-              >
-                <p className="text-[10px] text-primary font-semibold truncate bg-white/50 px-1 rounded-sm">{apt.name}</p>
-                <p className="text-[9px] text-secondary mt-0.5 truncate">{apt.procedure}</p>
-                <p className="text-[9px] text-outline mt-1">{apt.time}</p>
-              </div>
-            ))}
-          </div>
+          {/* Desktop: Cabeçalho dos Dias */}
+          {!isMobile && (
+            <div className="calendar-grid border-b border-outline-variant/20">
+              <div className="py-4 px-3"></div>
+              {days.map((day, i) => (
+                <div key={day} className="py-4 px-3 text-center">
+                  <p className="text-[10px] tracking-widest uppercase text-secondary">{day.slice(0, 3)}</p>
+                  <p className={`text-lg font-light mt-1 ${
+                    weekDates[i]?.toDateString() === new Date().toDateString() 
+                      ? 'text-primary font-medium' 
+                      : 'text-on-surface'
+                  }`}>
+                    {weekDates[i]?.getDate()}
+                  </p>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Mobile: Lista do Dia */}
+          {isMobile ? (
+            <div className="p-4 space-y-3">
+              {appointments
+                .filter(apt => apt.day === selectedDay)
+                .map((apt) => (
+                  <div
+                    key={apt.id}
+                    className="flex items-center gap-4 p-4 bg-primary/5 border-l-4 border-primary rounded-xl hover:bg-primary/10 transition-colors cursor-pointer"
+                    onClick={() => console.log('Detalhes do agendamento:', apt.id)}
+                  >
+                    <div className="flex-shrink-0">
+                      <img
+                        src={apt.avatar || 'https://cdn-icons-png.flaticon.com/512/1154/1154448.png'}
+                        alt={apt.name}
+                        className="w-12 h-12 rounded-full object-cover"
+                      />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-semibold text-on-surface truncate">{apt.name}</p>
+                      <p className="text-xs text-secondary truncate">{apt.procedure}</p>
+                      <p className="text-xs text-outline mt-1">{apt.time}</p>
+                    </div>
+                    <div className="flex-shrink-0">
+                      <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                        apt.status === 'confirmed' 
+                          ? 'bg-green-100 text-green-800' 
+                          : 'bg-yellow-100 text-yellow-800'
+                      }`}>
+                        {apt.status === 'confirmed' ? 'Confirmado' : 'Pendente'}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              
+              {appointments.filter(apt => apt.day === selectedDay).length === 0 && (
+                <div className="text-center py-12">
+                  <span className="material-symbols-outlined text-4xl text-outline-variant mb-2 block">event_available</span>
+                  <p className="text-sm text-secondary">Nenhum agendamento para este dia</p>
+                </div>
+              )}
+            </div>
+          ) : (
+            /* Desktop: Grade de Horários */
+            <div className="relative">
+              {hours.map((hour) => (
+                <div key={hour} className="calendar-grid">
+                  <div className="time-slot flex items-start justify-end pr-3 pt-2">
+                    <span className="text-[10px] text-outline">{hour}</span>
+                  </div>
+                  {days.map((_, di) => (
+                    <div 
+                      key={di} 
+                      className="time-slot border-l border-outline-variant/10 hover:bg-primary/5 cursor-pointer transition-colors"
+                      onClick={() => handleGridClick(di, hour)}
+                    />
+                  ))}
+                </div>
+              ))}
+
+              {/* Cards de Agendamento */}
+              {appointments.map((apt) => (
+                <div
+                  key={apt.id}
+                  className={`absolute rounded-xl p-2 bg-primary/5 border-l-2 ${apt.borderColor} hover:bg-primary/10 transition-colors cursor-pointer z-10`}
+                  style={{
+                    top: `${Math.max(0, apt.top)}px`,
+                    left: `calc(80px + ${Math.max(0, apt.day)} * ((100% - 80px) / 7) + 4px)`,
+                    width: `calc((100% - 80px) / 7 - 8px)`,
+                    height: `${Math.max(40, apt.height)}px`,
+                  }}
+                  onClick={() => console.log('Detalhes do agendamento:', apt.id)}
+                >
+                  <p className="text-[9px] text-primary font-semibold truncate bg-white/50 px-1 rounded-sm leading-tight">
+                    {apt.name}
+                  </p>
+                  <p className="text-[8px] text-secondary mt-0.5 truncate leading-tight">
+                    {apt.procedure}
+                  </p>
+                  <p className="text-[8px] text-outline mt-1 leading-tight">
+                    {apt.time.split(' - ')[0]}
+                  </p>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
-        {/* Right Info Panel - 1 col */}
-        <div className="col-span-1 space-y-6">
-          {/* Capacity */}
-          <div className="bg-surface-container-lowest rounded-2xl p-6 editorial-shadow">
+        {/* Painel Lateral */}
+        <div className="lg:col-span-1 space-y-4 lg:space-y-6">
+          {/* Capacidade das Salas */}
+          <div className="bg-surface-container-lowest rounded-2xl p-4 lg:p-6 editorial-shadow">
             <p className="text-xs tracking-widest uppercase text-secondary mb-4">Capacidade</p>
-            <div className="space-y-3">
-              <div className="flex justify-between text-xs">
-                <span className="text-on-surface font-medium">Sala 01</span>
-                <span className="text-secondary">4/8</span>
-              </div>
-              <div className="h-1.5 bg-primary/10 rounded-full overflow-hidden">
-                <div className="h-full bg-primary rounded-full" style={{ width: '50%' }} />
-              </div>
-              <div className="flex justify-between text-xs mt-2">
-                <span className="text-on-surface font-medium">Sala 02</span>
-                <span className="text-secondary">7/8</span>
-              </div>
-              <div className="h-1.5 bg-primary/10 rounded-full overflow-hidden">
-                <div className="h-full bg-primary rounded-full" style={{ width: '87%' }} />
-              </div>
-              <div className="flex justify-between text-xs mt-2">
-                <span className="text-on-surface font-medium">Sala 03</span>
-                <span className="text-secondary">2/8</span>
-              </div>
-              <div className="h-1.5 bg-primary/10 rounded-full overflow-hidden">
-                <div className="h-full bg-primary rounded-full" style={{ width: '25%' }} />
-              </div>
+            <div className="space-y-4">
+              {Object.entries(roomCapacity).map(([room, capacity]) => (
+                <div key={room}>
+                  <div className="flex justify-between text-xs mb-1">
+                    <span className="text-on-surface font-medium">
+                      {room === 'sala01' ? 'Sala 01' : room === 'sala02' ? 'Sala 02' : 'Sala 03'}
+                    </span>
+                    <span className="text-secondary">{capacity.current}/{capacity.max}</span>
+                  </div>
+                  <div className="h-1.5 bg-primary/10 rounded-full overflow-hidden">
+                    <div 
+                      className="h-full bg-primary rounded-full transition-all duration-500" 
+                      style={{ width: `${(capacity.current / capacity.max) * 100}%` }} 
+                    />
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
 
-          {/* Next Client */}
-          <div className="bg-surface-container-lowest rounded-2xl p-6 editorial-shadow">
-            <p className="text-xs tracking-widest uppercase text-secondary mb-4">Próximo Atendimento</p>
-            <div className="flex items-center gap-3 mb-4">
-              <img
-                alt={nextAppointment.name}
-                className="w-12 h-12 rounded-full object-cover grayscale-[20%]"
-                src={nextAppointment.avatar}
-              />
-              <div>
-                <p className="text-sm font-semibold text-on-surface">{nextAppointment.name}</p>
-                <p className="text-[10px] text-secondary mt-0.5">{nextAppointment.procedure}</p>
+          {/* Próximo Atendimento */}
+          {nextAppointment && (
+            <div className="bg-surface-container-lowest rounded-2xl p-4 lg:p-6 editorial-shadow">
+              <p className="text-xs tracking-widest uppercase text-secondary mb-4">Próximo Atendimento</p>
+              <div className="flex items-center gap-3 mb-4">
+                <img
+                  alt={nextAppointment.name}
+                  className="w-12 h-12 rounded-full object-cover grayscale-[20%]"
+                  src={nextAppointment.avatar || 'https://cdn-icons-png.flaticon.com/512/1154/1154448.png'}
+                />
+                <div>
+                  <p className="text-sm font-semibold text-on-surface">{nextAppointment.name}</p>
+                  <p className="text-[10px] text-secondary mt-0.5">{nextAppointment.procedure}</p>
+                  <p className="text-[10px] text-outline mt-0.5">{nextAppointment.time}</p>
+                </div>
+              </div>
+              <button 
+                onClick={() => handleStartAttendance(nextAppointment.id)}
+                className="w-full py-3 border border-primary text-primary rounded-xl text-xs font-semibold tracking-wider uppercase hover:bg-primary hover:text-on-primary transition-all duration-300"
+              >
+                Iniciar Atendimento
+              </button>
+            </div>
+          )}
+
+          {/* Estatísticas do Dia */}
+          <div className="bg-surface-container-lowest rounded-2xl p-4 lg:p-6 editorial-shadow">
+            <p className="text-xs tracking-widest uppercase text-secondary mb-4">Hoje</p>
+            <div className="space-y-3">
+              <div className="flex justify-between items-center">
+                <span className="text-xs text-secondary">Total</span>
+                <span className="text-lg font-light text-on-surface">
+                  {appointments.filter(apt => {
+                    const today = new Date().toISOString().split('T')[0];
+                    const aptDate = weekDates[apt.day]?.toISOString().split('T')[0];
+                    return aptDate === today;
+                  }).length}
+                </span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-xs text-secondary">Confirmados</span>
+                <span className="text-sm font-medium text-green-600">
+                  {appointments.filter(apt => {
+                    const today = new Date().toISOString().split('T')[0];
+                    const aptDate = weekDates[apt.day]?.toISOString().split('T')[0];
+                    return aptDate === today && apt.status === 'confirmed';
+                  }).length}
+                </span>
               </div>
             </div>
-            <button className="w-full py-3 border border-primary text-primary rounded-xl text-xs font-semibold tracking-wider uppercase hover:bg-primary hover:text-on-primary transition-all duration-300">
-              Iniciar Atendimento
-            </button>
           </div>
         </div>
       </div>
+
+      {/* Botão Flutuante Mobile */}
+      {isMobile && (
+        <button
+          onClick={() => setModalOpen(true)}
+          className="fixed bottom-6 right-6 w-14 h-14 bg-primary text-on-primary rounded-full shadow-lg flex items-center justify-center hover:scale-110 transition-transform z-50"
+        >
+          <span className="material-symbols-outlined text-xl">add</span>
+        </button>
+      )}
+
+      {/* Modal de Agendamento */}
+      <AgendamentoModal
+        isOpen={modalOpen}
+        onClose={() => {
+          setModalOpen(false);
+          setSelectedDate(null);
+          setSelectedTime(null);
+        }}
+        onSuccess={() => {
+          showNotification('Agendamento criado com sucesso!', 'success');
+          fetchAppointments();
+        }}
+        prefilledDate={selectedDate}
+        prefilledTime={selectedTime}
+      />
     </div>
   );
 }
