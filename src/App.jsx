@@ -1,4 +1,7 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { AuthProvider } from './lib/AuthContext';
+import ProtectedRoute from './components/ProtectedRoute';
+
 import AdminLayout from './components/AdminLayout';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
@@ -20,35 +23,39 @@ import AgendamentoConfirmado from './pages/client/AgendamentoConfirmado';
 
 export default function App() {
   return (
-    <BrowserRouter>
-      <Routes>
-        {/* Client routes with client layout */}
-        <Route path="/" element={<ClientLayout />}>
-          <Route index element={<Home />} />
-          <Route path="tratamentos" element={<Tratamentos />} />
-          <Route path="agendar" element={<AgendamentoServicos />} />
-          <Route path="agendar/horario" element={<AgendamentoHorario />} />
-          <Route path="agendar/dados" element={<AgendamentoDados />} />
-          <Route path="agendar/confirmado" element={<AgendamentoConfirmado />} />
-        </Route>
+    <AuthProvider>
+      <BrowserRouter>
+        <Routes>
+          {/* Client routes with client layout */}
+          <Route path="/" element={<ClientLayout />}>
+            <Route index element={<Home />} />
+            <Route path="tratamentos" element={<Tratamentos />} />
+            <Route path="agendar" element={<AgendamentoServicos />} />
+            <Route path="agendar/horario" element={<AgendamentoHorario />} />
+            <Route path="agendar/dados" element={<AgendamentoDados />} />
+            <Route path="agendar/confirmado" element={<AgendamentoConfirmado />} />
+          </Route>
 
-        {/* Login (no sidebar) */}
-        <Route path="/login" element={<Login />} />
+          {/* Login (no sidebar) */}
+          <Route path="/login" element={<Login />} />
 
-        {/* Admin routes with layout */}
-        <Route path="/admin" element={<AdminLayout />}>
-          <Route index element={<Dashboard />} />
-          <Route path="agendas" element={<Agendas />} />
-          <Route path="servicos" element={<Servicos />} />
-          <Route path="clientes" element={<Clientes />} />
-          <Route path="pacotes" element={<Pacotes />} />
-          <Route path="suporte" element={<Suporte />} />
-          <Route path="configuracoes" element={<Configuracoes />} />
-        </Route>
+          {/* Protected Admin Routes */}
+          <Route element={<ProtectedRoute />}>
+            <Route path="/admin" element={<AdminLayout />}>
+              <Route index element={<Dashboard />} />
+              <Route path="agendas" element={<Agendas />} />
+              <Route path="servicos" element={<Servicos />} />
+              <Route path="clientes" element={<Clientes />} />
+              <Route path="pacotes" element={<Pacotes />} />
+              <Route path="suporte" element={<Suporte />} />
+              <Route path="configuracoes" element={<Configuracoes />} />
+            </Route>
+          </Route>
 
-        {/* Default redirect to home page */}
-        <Route path="*" element={<Navigate to="/" replace />} />
-      </Routes>
-    </BrowserRouter>
+          {/* Default redirect to home page */}
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+      </BrowserRouter>
+    </AuthProvider>
   );
 }

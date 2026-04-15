@@ -1,6 +1,8 @@
+import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
+import { supabase } from '../../lib/supabase';
 
-const serviceCards = [
+const mockCards = [
   {
     title: 'Depilação a Led',
     description: 'Tecnologia de ponta para uma remoção definitiva, indolor e extremamente segura para todos os tons de pele.',
@@ -22,8 +24,47 @@ const serviceCards = [
 ];
 
 export default function AgendamentoServicos() {
+  const [serviceCards, setServiceCards] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    async function fetchServices() {
+      try {
+        setLoading(true);
+        // Fetch up to 3 active services for the showcase
+        const { data, error } = await supabase
+          .from('services')
+          .select('*')
+          .eq('is_active', true)
+          .limit(3);
+
+        if (error) throw error;
+
+        if (data && data.length > 0) {
+          const formatted = data.map((item, index) => ({
+            id: item.id,
+            title: item.name,
+            description: item.description || 'Procedimento de luxo exclusivo da clínica Jessica Dezidério.',
+            image: item.image_url || mockCards[index % mockCards.length].image,
+            offset: index % 2 !== 0,
+          }));
+          setServiceCards(formatted);
+        } else {
+          setServiceCards(mockCards); // Fallback if no DB data
+        }
+      } catch (err) {
+        console.warn('Fallback to mockCards due to Supabase error:', err.message);
+        setServiceCards(mockCards);
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    fetchServices();
+  }, []);
+
   return (
-    <main className="pt-40 pb-24 px-6 md:px-12 max-w-5xl mx-auto">
+    <main className="pt-40 pb-24 px-6 md:px-12 max-w-5xl mx-auto min-h-screen">
       {/* Header Section */}
       <section className="text-center mb-20">
         <span className="font-label tracking-[0.3em] text-[10px] uppercase text-[#4A3728] mb-4 block">Passo 01 — Seleção</span>
@@ -32,10 +73,16 @@ export default function AgendamentoServicos() {
       </section>
 
       {/* Services Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-10 md:gap-14 items-start">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-10 md:gap-14 items-start relative">
+        {loading && (
+          <div className="absolute inset-0 flex justify-center items-start pt-20 z-10 bg-background/50 backdrop-blur-sm">
+            <span className="material-symbols-outlined animate-spin text-4xl text-[#4A3728]/50">refresh</span>
+          </div>
+        )}
+        
         {serviceCards.map((card, i) => (
           <Link
-            key={i}
+            key={card.id || i}
             to="/agendar/horario"
             className={`group cursor-pointer ${card.offset ? 'md:mt-12' : ''}`}
           >
@@ -47,7 +94,7 @@ export default function AgendamentoServicos() {
               />
             </div>
             <h3 className="font-headline italic text-2xl text-[#4A3728] mb-3">{card.title}</h3>
-            <p className="font-body text-sm text-[#4f453e] leading-relaxed opacity-80 mb-6">
+            <p className="font-body text-sm text-[#4f453e] leading-relaxed opacity-80 mb-6 min-h-[60px]">
               {card.description}
             </p>
             <span className="font-label tracking-widest text-[10px] uppercase text-[#4A3728] border-b border-[#4A3728]/20 group-hover:border-[#4A3728]/60 transition-all">

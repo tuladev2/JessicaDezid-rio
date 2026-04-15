@@ -1,10 +1,52 @@
-import { useState } from 'react';
-import { services } from '../data/mockData';
+import { useState, useEffect } from 'react';
+import { supabase } from '../lib/supabase';
+import { services as mockServices } from '../data/mockData';
 
 const categories = ['Todos', 'Facial', 'Corporal', 'LED'];
 
 export default function Servicos() {
   const [activeCategory, setActiveCategory] = useState('Todos');
+  const [services, setServices] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [errorMsg, setErrorMsg] = useState('');
+
+  useEffect(() => {
+    async function fetchServices() {
+      try {
+        setLoading(true);
+        const { data, error } = await supabase.from('services').select('*').order('created_at', { ascending: false });
+        
+        if (error) {
+          throw error;
+        }
+
+        if (data && data.length > 0) {
+          // Normalize DB data to local component shape
+          const formatted = data.map(dbItem => ({
+            id: dbItem.id,
+            name: dbItem.name,
+            category: dbItem.category,
+            duration: `${dbItem.duration_minutes} min`,
+            price: `R$ ${dbItem.price_single}`,
+            active: dbItem.is_active,
+            image: dbItem.image_url || mockServices[0].image, 
+          }));
+          setServices(formatted);
+        } else {
+          // Fallback to mockData if DB is totally empty (e.g., they haven't run the script)
+            setServices(mockServices);
+        }
+      } catch (err) {
+        console.warn('Supabase fetch failed, using fallback mock data:', err.message);
+        setServices(mockServices);
+        setErrorMsg('Mostrando dados locais (Banco de Dados não configurado/offline)');
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    fetchServices();
+  }, []);
 
   const filtered = activeCategory === 'Todos'
     ? services
@@ -24,6 +66,13 @@ export default function Servicos() {
         </button>
       </div>
 
+      {errorMsg && (
+        <div className="mb-6 p-4 bg-error-container text-error text-xs rounded border border-error/20 flex items-center gap-2">
+          <span className="material-symbols-outlined text-[16px]">warning</span>
+          {errorMsg}
+        </div>
+      )}
+
       {/* Category Filters */}
       <div className="flex items-center gap-3 mb-8">
         {categories.map((cat) => (
@@ -42,7 +91,13 @@ export default function Servicos() {
       </div>
 
       {/* Services Table */}
-      <div className="bg-surface-container-lowest rounded-2xl editorial-shadow overflow-hidden">
+      <div className="bg-surface-container-lowest rounded-2xl editorial-shadow overflow-hidden min-h-[300px] relative">
+        {loading ? (
+          <div className="absolute inset-0 flex items-center justify-center bg-white/50 backdrop-blur-sm z-10">
+            <span className="material-symbols-outlined animate-spin text-primary text-3xl">refresh</span>
+          </div>
+        ) : null}
+
         <table className="w-full">
           <thead>
             <tr className="border-b border-outline-variant/20">
@@ -57,7 +112,7 @@ export default function Servicos() {
           <tbody>
             {filtered.map((service, i) => (
               <tr
-                key={i}
+                key={service.id || i}
                 className="border-b border-outline-variant/10 last:border-0 hover:bg-primary/5 transition-colors"
               >
                 <td className="py-4 px-6">
@@ -99,6 +154,14 @@ export default function Servicos() {
                 </td>
               </tr>
             ))}
+            
+            {!loading && filtered.length === 0 && (
+              <tr>
+                <td colSpan="6" className="py-12 text-center text-secondary text-sm">
+                  Nenhum serviço encontrado nesta categoria.
+                </td>
+              </tr>
+            )}
           </tbody>
         </table>
       </div>
@@ -107,7 +170,7 @@ export default function Servicos() {
       <div className="grid grid-cols-3 gap-6 mt-8">
         <div className="bg-surface-container-lowest rounded-2xl p-6 editorial-shadow">
           <p className="text-3xl font-light text-on-surface mb-1">{services.length}</p>
-          <p className="text-xs text-secondary">Serviços Ativos</p>
+          <p className="text-xs text-secondary">Serviços Listados</p>
         </div>
         <div className="bg-surface-container-lowest rounded-2xl p-6 editorial-shadow">
           <p className="text-3xl font-light text-on-surface mb-1">94%</p>

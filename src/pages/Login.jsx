@@ -1,15 +1,31 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { spaInterior } from '../data/mockData';
+import { supabase } from '../lib/supabase';
 
 export default function Login() {
   const navigate = useNavigate();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [errorMsg, setErrorMsg] = useState('');
 
-  const handleLogin = (e) => {
+  const handleLogin = async (e) => {
     e.preventDefault();
-    navigate('/admin');
+    setLoading(true);
+    setErrorMsg('');
+
+    const { error } = await supabase.auth.signInWithPassword({
+      email,
+      password,
+    });
+
+    if (error) {
+      setErrorMsg(error.message);
+      setLoading(false);
+    } else {
+      navigate('/admin');
+    }
   };
 
   return (
@@ -55,7 +71,7 @@ export default function Login() {
               Bem-vinda de volta
             </h2>
             <p className="text-sm text-secondary">
-              Acesse o painel de gestão da sua clínica.
+              Acesse o painel restrito de gestão da sua clínica.
             </p>
           </div>
 
@@ -69,7 +85,8 @@ export default function Login() {
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                placeholder="jessica@estewtica.com.br"
+                placeholder="admin@estewtica.com.br"
+                required
                 className="w-full bg-transparent border-0 border-b border-outline-variant pb-3 text-sm text-on-surface placeholder:text-outline focus:border-primary focus:ring-0 transition-colors"
               />
             </div>
@@ -82,9 +99,14 @@ export default function Login() {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="••••••••"
+                required
                 className="w-full bg-transparent border-0 border-b border-outline-variant pb-3 text-sm text-on-surface placeholder:text-outline focus:border-primary focus:ring-0 transition-colors"
               />
             </div>
+
+            {errorMsg && (
+              <p className="text-error text-xs font-medium bg-error-container p-3 rounded">{errorMsg}</p>
+            )}
 
             <div className="flex items-center justify-between text-xs">
               <label className="flex items-center gap-2 text-secondary cursor-pointer">
@@ -101,9 +123,10 @@ export default function Login() {
 
             <button
               type="submit"
-              className="w-full py-4 bg-primary text-on-primary rounded-xl text-xs font-semibold tracking-widest uppercase hover:opacity-90 transition-all duration-300 active:scale-[0.98] editorial-shadow"
+              disabled={loading}
+              className={`w-full py-4 bg-primary text-on-primary rounded-xl text-xs font-semibold tracking-widest uppercase transition-all duration-300 editorial-shadow ${loading ? 'opacity-50 cursor-not-allowed' : 'hover:opacity-90 active:scale-[0.98]'}`}
             >
-              Entrar
+              {loading ? 'Entrando...' : 'Entrar no Sistema'}
             </button>
           </form>
 
