@@ -104,30 +104,44 @@ export default function Pacotes() {
               </tr>
             </thead>
             <tbody>
-              {packages.map((pkg, i) => (
-                <tr key={i} className="border-b border-outline-variant/10 last:border-0 hover:bg-primary/5 transition-colors">
-                  <td className="py-4 px-6 text-sm text-on-surface font-medium">{pkg.client}</td>
-                  <td className="py-4 px-6 text-sm text-secondary">{pkg.procedure}</td>
-                  <td className="py-4 px-6">
-                    <div className="flex flex-col items-center">
-                      <span className="text-xs text-on-surface font-medium">{pkg.sessions}</span>
-                      <div className="w-16 h-1.5 bg-primary/10 rounded-full overflow-hidden mt-1">
-                        <div className="h-full bg-primary rounded-full" style={{ width: `${pkg.progress}%` }} />
+              {packages && packages.length > 0 ? (
+                packages.map((pkg, i) => (
+                  <tr key={i} className="border-b border-outline-variant/10 last:border-0 hover:bg-primary/5 transition-colors">
+                    <td className="py-4 px-6 text-sm text-on-surface font-medium">{pkg.client}</td>
+                    <td className="py-4 px-6 text-sm text-secondary">{pkg.procedure}</td>
+                    <td className="py-4 px-6">
+                      <div className="flex flex-col items-center">
+                        <span className="text-xs text-on-surface font-medium">{pkg.sessions}</span>
+                        <div className="w-16 h-1.5 bg-primary/10 rounded-full overflow-hidden mt-1">
+                          <div className="h-full bg-primary rounded-full" style={{ width: `${pkg.progress}%` }} />
+                        </div>
                       </div>
+                    </td>
+                    <td className="py-4 px-6 text-sm text-on-surface">{pkg.price}</td>
+                    <td className="py-4 px-6 text-center">
+                      <span className={`text-[10px] tracking-wider uppercase px-3 py-1 rounded-full font-medium ${
+                        pkg.status === 'Concluído'
+                          ? 'bg-tertiary/10 text-tertiary'
+                          : 'bg-primary/10 text-primary'
+                      }`}>
+                        {pkg.status}
+                      </span>
+                    </td>
+                  </tr>
+                ))
+              ) : (
+                <tr>
+                  <td colSpan="5" className="py-12 text-center">
+                    <div className="flex flex-col items-center justify-center opacity-60">
+                      <span className="material-symbols-outlined text-4xl mb-4 text-outline">inventory_2</span>
+                      <p className="text-sm text-secondary">Ainda não há pacotes ou planos de longo prazo cadastrados na clínica.</p>
+                      <button className="mt-4 px-6 py-2 bg-primary/10 text-primary rounded-xl text-xs font-semibold tracking-widest uppercase hover:bg-primary/20 transition-colors">
+                        Saber Mais
+                      </button>
                     </div>
                   </td>
-                  <td className="py-4 px-6 text-sm text-on-surface">{pkg.price}</td>
-                  <td className="py-4 px-6 text-center">
-                    <span className={`text-[10px] tracking-wider uppercase px-3 py-1 rounded-full font-medium ${
-                      pkg.status === 'Concluído'
-                        ? 'bg-tertiary/10 text-tertiary'
-                        : 'bg-primary/10 text-primary'
-                    }`}>
-                      {pkg.status}
-                    </span>
-                  </td>
                 </tr>
-              ))}
+              )}
             </tbody>
           </table>
         </div>

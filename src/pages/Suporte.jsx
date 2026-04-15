@@ -47,50 +47,65 @@ export default function Suporte() {
 
           {/* Tickets */}
           <div className="flex-1 overflow-y-auto">
-            {filtered.map((ticket) => (
-              <div
-                key={ticket.id}
-                className={`p-4 border-b border-outline-variant/10 cursor-pointer hover:bg-primary/5 transition-all ${
-                  ticket.active ? 'bg-primary/5 border-l-2 border-l-primary' : ''
-                } ${ticket.dimmed ? 'opacity-50' : ''}`}
-              >
-                <div className="flex items-center justify-between mb-1">
-                  <p className="text-sm font-semibold text-on-surface">{ticket.title}</p>
-                  <span className="text-[10px] text-outline">{ticket.time}</span>
+            {filtered && filtered.length > 0 ? (
+              filtered.map((ticket) => (
+                <div
+                  key={ticket.id}
+                  className={`p-4 border-b border-outline-variant/10 cursor-pointer hover:bg-primary/5 transition-all ${
+                    ticket.active ? 'bg-primary/5 border-l-2 border-l-primary' : ''
+                  } ${ticket.dimmed ? 'opacity-50' : ''}`}
+                >
+                  <div className="flex items-center justify-between mb-1">
+                    <p className="text-sm font-semibold text-on-surface">{ticket.title}</p>
+                    <span className="text-[10px] text-outline">{ticket.time}</span>
+                  </div>
+                  <p className="text-xs text-secondary truncate">{ticket.preview}</p>
+                  <div className="mt-2">
+                    <span className={`text-[9px] tracking-wider uppercase px-2 py-0.5 rounded-full font-medium ${
+                      ticket.status === 'Pendentes'
+                        ? 'bg-amber-100 text-amber-700'
+                        : ticket.status === 'Em Atendimento'
+                          ? 'bg-primary/10 text-primary'
+                          : 'bg-tertiary/10 text-tertiary'
+                    }`}>
+                      {ticket.status}
+                    </span>
+                  </div>
                 </div>
-                <p className="text-xs text-secondary truncate">{ticket.preview}</p>
-                <div className="mt-2">
-                  <span className={`text-[9px] tracking-wider uppercase px-2 py-0.5 rounded-full font-medium ${
-                    ticket.status === 'Pendentes'
-                      ? 'bg-amber-100 text-amber-700'
-                      : ticket.status === 'Em Atendimento'
-                        ? 'bg-primary/10 text-primary'
-                        : 'bg-tertiary/10 text-tertiary'
-                  }`}>
-                    {ticket.status}
-                  </span>
-                </div>
+              ))
+            ) : (
+              <div className="h-full flex flex-col items-center justify-center p-6 text-center opacity-60">
+                <span className="material-symbols-outlined text-4xl mb-4 text-outline">inbox</span>
+                <p className="text-sm text-secondary">A caixa está limpa. Nenhum chamado aberto.</p>
               </div>
-            ))}
+            )}
           </div>
         </div>
 
         {/* Right: Chat */}
-        <div className="col-span-2 bg-surface-container-lowest rounded-2xl editorial-shadow flex flex-col overflow-hidden">
+        <div className="col-span-2 bg-surface-container-lowest rounded-2xl editorial-shadow flex flex-col overflow-hidden relative">
+          
+          {(!filtered || filtered.length === 0) && (
+             <div className="absolute inset-0 z-10 bg-surface-container-lowest flex flex-col items-center justify-center text-center opacity-70 p-8">
+               <span className="material-symbols-outlined text-4xl mb-4 text-outline">forum</span>
+               <p className="text-sm text-secondary">Selecione um chamado na lateral para ver o bate-papo.</p>
+             </div>
+          )}
+
           {/* Chat Header */}
           <div className="p-6 border-b border-outline-variant/20 flex items-center justify-between">
             <div>
-              <h3 className="text-sm font-semibold text-on-surface">Ajuste de Agenda</h3>
-              <p className="text-[10px] text-secondary mt-0.5">Ticket #001 • Aberto hoje, 10:42</p>
+              <h3 className="text-sm font-semibold text-on-surface">Atendimento Falso</h3>
+              <p className="text-[10px] text-secondary mt-0.5">Ticket #000</p>
             </div>
             <span className="text-[10px] tracking-wider uppercase px-3 py-1 rounded-full bg-amber-100 text-amber-700 font-medium">
-              Pendentes
+              Aguardando
             </span>
           </div>
 
           {/* Messages */}
           <div className="flex-1 overflow-y-auto p-6 space-y-4">
-            {chatMessages.map((msg, i) => (
+            {chatMessages && chatMessages.length > 0 && chatMessages.map((msg, i) => (
               <div
                 key={i}
                 className={`flex ${msg.from === 'user' ? 'justify-end' : 'justify-start'}`}
