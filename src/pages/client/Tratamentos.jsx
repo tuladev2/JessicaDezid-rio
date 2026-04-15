@@ -1,12 +1,62 @@
+import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
+import { supabase } from '../../lib/supabase';
+
+const fallbackTreatments = [
+  { area: 'Buço ou Queixo', avulso: 'R$ 80,00', pacote: 'R$ 390,00' },
+  { area: 'Axilas', avulso: 'R$ 120,00', pacote: 'R$ 540,00' },
+  { area: 'Virilha Completa', avulso: 'R$ 220,00', pacote: 'R$ 990,00' },
+  { area: 'Meia Perna', avulso: 'R$ 280,00', pacote: 'R$ 1.250,00' },
+  { area: 'Perna Inteira', avulso: 'R$ 450,00', pacote: 'R$ 1.980,00' },
+  { area: 'Rosto Feminino', avulso: 'R$ 180,00', pacote: 'R$ 780,00' },
+];
 
 export default function Tratamentos() {
+  const [treatments, setTreatments] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    async function fetchTreatments() {
+      try {
+        setLoading(true);
+        const { data, error } = await supabase
+          .from('services')
+          .select('name, price_single, price_package')
+          .eq('is_active', true)
+          .order('price_single', { ascending: true });
+
+        if (error) throw error;
+
+        if (data && data.length > 0) {
+          const formatted = data.map(item => ({
+            id: item.id || item.name,
+            area: item.name,
+            avulso: `R$ ${Number(item.price_single).toFixed(2).replace('.', ',')}`,
+            pacote: item.price_package 
+              ? `R$ ${Number(item.price_package).toFixed(2).replace('.', ',')}` 
+              : 'Sob Consulta'
+          }));
+          setTreatments(formatted);
+        } else {
+          setTreatments(fallbackTreatments);
+        }
+      } catch (err) {
+        console.warn('Using fallback data due to Supabase error in catalog:', err.message);
+        setTreatments(fallbackTreatments);
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    fetchTreatments();
+  }, []);
+
   return (
     <main className="pt-48 pb-20 px-6 max-w-screen-xl mx-auto">
       {/* Hero Section */}
       <header className="mb-24 flex flex-col items-center text-center">
         <span className="font-label text-[10px] tracking-[0.4em] uppercase text-[#775841] mb-6">Inovação em Estética</span>
-        <h1 className="font-headline italic text-5xl md:text-7xl text-[#4A3728] mb-8 max-w-3xl leading-tight">Depilação a LED Holonyak</h1>
+        <h1 className="font-headline italic text-5xl md:text-7xl text-[#4A3728] mb-8 max-w-3xl leading-tight">Catálogo de Procedimentos</h1>
         <p className="font-body text-lg text-[#4A3728]/80 max-w-xl leading-relaxed">
           A tecnologia mais avançada do mercado para uma pele impecável. Menos sessões, maior conforto e resultados definitivos para todos os tipos de pele.
         </p>
@@ -25,8 +75,14 @@ export default function Tratamentos() {
         </div>
 
         {/* Right: The Table */}
-        <div className="flex flex-col gap-12">
-          <div className="bg-[#F8F6F4] rounded-[2rem] p-8 md:p-12">
+        <div className="flex flex-col gap-12 relative">
+          <div className="bg-[#F8F6F4] rounded-[2rem] p-8 md:p-12 relative overflow-hidden">
+            {loading && (
+              <div className="absolute inset-0 z-10 flex items-center justify-center bg-[#F8F6F4]/80 backdrop-blur-sm">
+                <span className="material-symbols-outlined animate-spin text-3xl text-[#4A3728]/50">refresh</span>
+              </div>
+            )}
+            
             <h2 className="font-headline text-3xl mb-12 text-[#4A3728] border-b border-[#4A3728]/10 pb-4 italic">Tabela de Valores</h2>
             <div className="overflow-x-auto">
               <table className="w-full border-collapse">
@@ -38,20 +94,21 @@ export default function Tratamentos() {
                   </tr>
                 </thead>
                 <tbody className="font-body text-[#4A3728]">
-                  {[
-                    { area: 'Buço ou Queixo', avulso: 'R$ 80,00', pacote: 'R$ 390,00' },
-                    { area: 'Axilas', avulso: 'R$ 120,00', pacote: 'R$ 540,00' },
-                    { area: 'Virilha Completa', avulso: 'R$ 220,00', pacote: 'R$ 990,00' },
-                    { area: 'Meia Perna', avulso: 'R$ 280,00', pacote: 'R$ 1.250,00' },
-                    { area: 'Perna Inteira', avulso: 'R$ 450,00', pacote: 'R$ 1.980,00' },
-                    { area: 'Rosto Feminino', avulso: 'R$ 180,00', pacote: 'R$ 780,00' },
-                  ].map((row, i) => (
-                    <tr key={i} className={`group ${i > 0 ? 'border-t border-[#4A3728]/10' : ''}`}>
+                  {treatments.map((row, i) => (
+                    <tr key={row.id || i} className={`group ${i > 0 ? 'border-t border-[#4A3728]/10' : ''}`}>
                       <td className="py-8 font-medium">{row.area}</td>
                       <td className="py-8 px-4 opacity-70 italic">{row.avulso}</td>
                       <td className="py-8 text-right font-extrabold tracking-tight text-xl">{row.pacote}</td>
                     </tr>
                   ))}
+                  
+                  {!loading && treatments.length === 0 && (
+                    <tr>
+                      <td colSpan="3" className="py-12 text-center opacity-60 text-sm">
+                        Catálogo em atualização.
+                      </td>
+                    </tr>
+                  )}
                 </tbody>
               </table>
             </div>
@@ -62,7 +119,7 @@ export default function Tratamentos() {
               </div>
               <Link
                 to="/agendar"
-                className="bg-[#4A3728] text-[#FDFCFB] px-10 py-5 rounded-full font-label text-[10px] tracking-[0.2em] uppercase hover:scale-105 transition-transform duration-300"
+                className="bg-[#4A3728] text-[#FDFCFB] px-10 py-5 rounded-full font-label text-[10px] tracking-[0.2em] uppercase hover:scale-105 transition-transform duration-300 whitespace-nowrap"
               >
                 Reservar Agora
               </Link>
@@ -84,7 +141,7 @@ export default function Tratamentos() {
           <span className="material-symbols-outlined text-4xl">timer</span>
           <div>
             <h3 className="font-headline italic text-2xl mb-4">Sessões Rápidas</h3>
-            <p className="text-sm opacity-80 leading-relaxed">Tecnologia Holonyak permite agilidade sem perder a eficácia.</p>
+            <p className="text-sm opacity-80 leading-relaxed">Tecnologia permite agilidade sem perder a eficácia.</p>
           </div>
         </div>
         <div className="bg-[#F8F6F4] p-10 rounded-[2rem] flex flex-col justify-between aspect-square md:aspect-auto h-[300px]">

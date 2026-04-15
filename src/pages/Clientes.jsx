@@ -1,6 +1,70 @@
-import { clientProfile } from '../data/mockData';
+import { useState, useEffect } from 'react';
+import { supabase } from '../lib/supabase';
+import { clientProfile as mockClientProfile } from '../data/mockData';
 
 export default function Clientes() {
+  const [profile, setProfile] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    async function fetchClient() {
+      try {
+        setLoading(true);
+        // Busca o primeiro cliente da base apenas como Prova de Conceito
+        // Numa versão final real, aqui haveria uma listagem lateral para Selecionar o cliente.
+        const { data, error } = await supabase
+          .from('clients')
+          .select('*')
+          .limit(1)
+          .single();
+
+        if (error && error.code !== 'PGRST116') {
+          // PGRST116 is "no rows returned", which is fine, we fallback.
+          throw error;
+        }
+
+        if (data) {
+          // Parse do BD para o Formato Esperado pela UI
+          setProfile({
+            name: data.full_name,
+            avatar: 'https://cdn-icons-png.flaticon.com/512/1154/1154448.png', // Fallback genérico real
+            tier: 'Membro Ativo',
+            lastVisit: 'Recente',
+            memberSince: new Date(data.created_at).toLocaleDateString(),
+            birthday: data.birth_date ? new Date(data.birth_date).toLocaleDateString() : 'Não informado',
+            sessions: '?',
+            loyaltyPercent: 50,
+            allergies: 'Consulta Necessária',
+            preferences: 'Consulta Necessária',
+            notes: data.notes || 'Nenhuma nota clínica cadastrada para esta paciente.',
+            favoriteTreatments: [], // Requires a more complex join in the future
+            history: [],
+          });
+        } else {
+          setProfile(mockClientProfile);
+        }
+      } catch (err) {
+        console.warn('Usando mockData para Prontuário devido a erro/falta no Supabase:', err.message);
+        setProfile(mockClientProfile);
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    fetchClient();
+  }, []);
+
+  if (loading) {
+    return (
+      <div className="px-12 py-10 flex items-center justify-center min-h-[500px]">
+         <span className="material-symbols-outlined animate-spin text-primary text-4xl">refresh</span>
+      </div>
+    );
+  }
+
+  // Safety break if both DB and Mock fail
+  if (!profile) return null;
+
   return (
     <div className="px-12 py-10">
       {/* Header */}
@@ -16,40 +80,40 @@ export default function Clientes() {
 
       {/* Profile Card */}
       <div className="grid grid-cols-3 gap-6 mb-8">
-        <div className="col-span-1 bg-surface-container-lowest rounded-2xl p-8 editorial-shadow flex flex-col items-center text-center">
+        <div className="col-span-1 bg-surface-container-lowest rounded-2xl p-8 editorial-shadow flex flex-col items-center text-center relative">
           <img
-            alt={clientProfile.name}
-            src={clientProfile.avatar}
+            alt={profile.name}
+            src={profile.avatar}
             className="w-28 h-28 rounded-full object-cover grayscale-[20%] mb-4 border-4 border-primary-container"
           />
-          <h3 className="font-serif text-xl text-on-surface mb-1">{clientProfile.name}</h3>
+          <h3 className="font-serif text-xl text-on-surface mb-1 truncate w-full">{profile.name}</h3>
           <span className="text-[10px] tracking-widest uppercase text-primary font-medium bg-primary/10 px-4 py-1 rounded-full mb-4">
-            {clientProfile.tier}
+            {profile.tier}
           </span>
           <div className="w-full space-y-3 text-left mt-4 pt-4 border-t border-outline-variant/20">
             <div className="flex items-center gap-3 text-xs">
               <span className="material-symbols-outlined text-secondary text-sm">calendar_today</span>
               <span className="text-secondary">Última visita:</span>
-              <span className="text-on-surface font-medium ml-auto">{clientProfile.lastVisit}</span>
+              <span className="text-on-surface font-medium ml-auto">{profile.lastVisit}</span>
             </div>
             <div className="flex items-center gap-3 text-xs">
               <span className="material-symbols-outlined text-secondary text-sm">loyalty</span>
               <span className="text-secondary">Desde:</span>
-              <span className="text-on-surface font-medium ml-auto">{clientProfile.memberSince}</span>
+              <span className="text-on-surface font-medium ml-auto">{profile.memberSince}</span>
             </div>
             <div className="flex items-center gap-3 text-xs">
               <span className="material-symbols-outlined text-secondary text-sm">cake</span>
               <span className="text-secondary">Aniversário:</span>
-              <span className="text-on-surface font-medium ml-auto">{clientProfile.birthday}</span>
+              <span className="text-on-surface font-medium ml-auto">{profile.birthday}</span>
             </div>
           </div>
           <div className="grid grid-cols-2 gap-3 w-full mt-6">
             <div className="bg-primary/5 rounded-xl p-3 text-center">
-              <p className="text-2xl font-light text-primary">{clientProfile.sessions}</p>
+              <p className="text-2xl font-light text-primary">{profile.sessions}</p>
               <p className="text-[10px] text-secondary mt-1">Sessões</p>
             </div>
             <div className="bg-primary/5 rounded-xl p-3 text-center">
-              <p className="text-2xl font-light text-primary">{clientProfile.loyaltyPercent}%</p>
+              <p className="text-2xl font-light text-primary">{profile.loyaltyPercent}%</p>
               <p className="text-[10px] text-secondary mt-1">Fidelidade</p>
             </div>
           </div>
@@ -64,14 +128,14 @@ export default function Clientes() {
                 <span className="material-symbols-outlined text-error text-sm">warning</span>
                 <p className="text-xs tracking-widest uppercase text-secondary font-semibold">Alergias & Sensibilidades</p>
               </div>
-              <p className="text-sm text-on-surface leading-relaxed">{clientProfile.allergies}</p>
+              <p className="text-sm text-on-surface leading-relaxed">{profile.allergies}</p>
             </div>
             <div className="bg-surface-container-lowest rounded-2xl p-6 editorial-shadow">
               <div className="flex items-center gap-2 mb-3">
                 <span className="material-symbols-outlined text-primary text-sm">spa</span>
                 <p className="text-xs tracking-widest uppercase text-secondary font-semibold">Preferências da Cliente</p>
               </div>
-              <p className="text-sm text-on-surface leading-relaxed">{clientProfile.preferences}</p>
+              <p className="text-sm text-on-surface leading-relaxed">{profile.preferences}</p>
             </div>
           </div>
 
@@ -81,24 +145,28 @@ export default function Clientes() {
               <span className="material-symbols-outlined text-secondary text-sm">edit_note</span>
               <p className="text-xs tracking-widest uppercase text-secondary font-semibold">Notas Clínicas</p>
             </div>
-            <p className="text-sm text-on-surface leading-relaxed italic serif-italic">{clientProfile.notes}</p>
+            <p className="text-sm text-on-surface leading-relaxed italic serif-italic">{profile.notes}</p>
           </div>
 
           {/* Favorite Treatments */}
           <div className="bg-surface-container-lowest rounded-2xl p-6 editorial-shadow">
             <p className="text-xs tracking-widest uppercase text-secondary font-semibold mb-4">Tratamentos Favoritos</p>
             <div className="grid grid-cols-2 gap-4">
-              {clientProfile.favoriteTreatments.map((t, i) => (
-                <div key={i} className="flex items-center gap-3 p-3 bg-primary/5 rounded-xl">
-                  <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
-                    <span className="material-symbols-outlined text-primary text-lg">{t.icon}</span>
+              {profile.favoriteTreatments.length > 0 ? (
+                profile.favoriteTreatments.map((t, i) => (
+                  <div key={i} className="flex items-center gap-3 p-3 bg-primary/5 rounded-xl">
+                    <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
+                      <span className="material-symbols-outlined text-primary text-lg">{t.icon}</span>
+                    </div>
+                    <div>
+                      <p className="text-sm font-medium text-on-surface">{t.name}</p>
+                      <p className="text-[10px] text-secondary">{t.sessions} sessões realizadas</p>
+                    </div>
                   </div>
-                  <div>
-                    <p className="text-sm font-medium text-on-surface">{t.name}</p>
-                    <p className="text-[10px] text-secondary">{t.sessions} sessões realizadas</p>
-                  </div>
-                </div>
-              ))}
+                ))
+              ) : (
+                <p className="text-xs text-secondary italic">Histórico insuficiente para determinar tratamentos favoritos.</p>
+              )}
             </div>
           </div>
         </div>
@@ -108,24 +176,28 @@ export default function Clientes() {
       <div className="bg-surface-container-lowest rounded-2xl p-8 editorial-shadow">
         <p className="text-xs tracking-widest uppercase text-secondary font-semibold mb-6">Histórico de Procedimentos</p>
         <div className="space-y-0">
-          {clientProfile.history.map((item, i) => (
-            <div key={i} className="flex gap-6 group">
-              {/* Timeline Line */}
-              <div className="flex flex-col items-center">
-                <div className={`w-3 h-3 rounded-full border-2 ${item.recent ? 'border-primary bg-primary/20' : 'border-outline-variant bg-surface-container'}`} />
-                {i !== clientProfile.history.length - 1 && (
-                  <div className="w-px flex-1 bg-outline-variant/30 my-1" />
-                )}
+          {profile.history.length > 0 ? (
+            profile.history.map((item, i) => (
+              <div key={i} className="flex gap-6 group">
+                {/* Timeline Line */}
+                <div className="flex flex-col items-center">
+                  <div className={`w-3 h-3 rounded-full border-2 ${item.recent ? 'border-primary bg-primary/20' : 'border-outline-variant bg-surface-container'}`} />
+                  {i !== profile.history.length - 1 && (
+                    <div className="w-px flex-1 bg-outline-variant/30 my-1" />
+                  )}
+                </div>
+                {/* Content */}
+                <div className="pb-6">
+                  <p className="text-[10px] text-outline mb-1">{item.date}</p>
+                  <p className="text-sm font-semibold text-on-surface">{item.procedure}</p>
+                  <p className="text-[10px] text-primary mb-1">{item.doctor}</p>
+                  <p className="text-xs text-secondary leading-relaxed">{item.description}</p>
+                </div>
               </div>
-              {/* Content */}
-              <div className="pb-6">
-                <p className="text-[10px] text-outline mb-1">{item.date}</p>
-                <p className="text-sm font-semibold text-on-surface">{item.procedure}</p>
-                <p className="text-[10px] text-primary mb-1">{item.doctor}</p>
-                <p className="text-xs text-secondary leading-relaxed">{item.description}</p>
-              </div>
-            </div>
-          ))}
+            ))
+          ) : (
+            <p className="text-xs text-secondary italic">Sem registros anteriores.</p>
+          )}
         </div>
       </div>
     </div>

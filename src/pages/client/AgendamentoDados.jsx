@@ -1,11 +1,68 @@
+import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
+import { supabase } from '../../lib/supabase';
 
 export default function AgendamentoDados() {
   const navigate = useNavigate();
+  
+  const [formData, setFormData] = useState({
+    name: '',
+    phone: '',
+    birth: '',
+    cpf: ''
+  });
+  const [loading, setLoading] = useState(false);
 
-  const handleSubmit = (e) => {
+  const handleChange = (e) => {
+    setFormData({ ...formData, [e.target.name]: e.target.value });
+  };
+
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    navigate('/agendar/confirmado');
+    setLoading(true);
+    
+    try {
+      // 1. Inserir ou recuperar o Cliente
+      // Parse rough da data de nascimento DD/MM/AAAA para AAAA-MM-DD
+      let birthDate = null;
+      if (formData.birth && formData.birth.length === 10) {
+        const [d, m, y] = formData.birth.split('/');
+        birthDate = `${y}-${m}-${d}`;
+      }
+
+      const { data: clientData, error: clientErr } = await supabase
+        .from('clients')
+        .insert([{
+          full_name: formData.name || 'Cliente Sem Nome',
+          phone: formData.phone || '',
+          birth_date: birthDate,
+          notes: `CPF Info: ${formData.cpf}`
+        }])
+        .select()
+        .single();
+
+      // Toleramos o erro se o schema não bater ou estiver sem chaves.
+      if (clientErr) throw clientErr;
+
+      // 2. Inserir um agendamento fictício pro futuro para este cliente recém criado
+      const today = new Date();
+      today.setDate(today.getDate() + 2); // daqui a 2 dias
+
+      await supabase
+        .from('appointments')
+        .insert([{
+          client_id: clientData.id,
+          appointment_date: today.toISOString().split('T')[0],
+          start_time: '14:30',
+          status: 'scheduled'
+        }]);
+
+    } catch (err) {
+      console.warn('Backend Supabase falhou ou não configurado. Navegando via MockFlow.', err.message);
+    } finally {
+      setLoading(false);
+      navigate('/agendar/confirmado');
+    }
   };
 
   return (
@@ -38,6 +95,9 @@ export default function AgendamentoDados() {
               type="text"
               id="name"
               name="name"
+              required
+              value={formData.name}
+              onChange={handleChange}
               placeholder="Ex: Maria Oliveira Santos"
               className="w-full bg-transparent border-t-0 border-x-0 border-b border-[#d3c3ba]/30 focus:ring-0 focus:border-[#4A3728] py-3 transition-all placeholder:text-[#d3c3ba]/50 serif-regular text-xl text-[#4A3728] outline-none"
             />
@@ -50,6 +110,9 @@ export default function AgendamentoDados() {
               type="tel"
               id="phone"
               name="phone"
+              required
+              value={formData.phone}
+              onChange={handleChange}
               placeholder="(00) 00000-0000"
               className="w-full bg-transparent border-t-0 border-x-0 border-b border-[#d3c3ba]/30 focus:ring-0 focus:border-[#4A3728] py-3 transition-all placeholder:text-[#d3c3ba]/50 serif-regular text-xl text-[#4A3728] outline-none"
             />
@@ -65,6 +128,8 @@ export default function AgendamentoDados() {
               type="text"
               id="birth"
               name="birth"
+              value={formData.birth}
+              onChange={handleChange}
               placeholder="DD/MM/AAAA"
               className="w-full bg-transparent border-t-0 border-x-0 border-b border-[#d3c3ba]/30 focus:ring-0 focus:border-[#4A3728] py-3 transition-all placeholder:text-[#d3c3ba]/50 serif-regular text-xl text-[#4A3728] outline-none"
             />
@@ -77,6 +142,8 @@ export default function AgendamentoDados() {
               type="text"
               id="cpf"
               name="cpf"
+              value={formData.cpf}
+              onChange={handleChange}
               placeholder="000.000.000-00"
               className="w-full bg-transparent border-t-0 border-x-0 border-b border-[#d3c3ba]/30 focus:ring-0 focus:border-[#4A3728] py-3 transition-all placeholder:text-[#d3c3ba]/50 serif-regular text-xl text-[#4A3728] outline-none"
             />
@@ -95,16 +162,23 @@ export default function AgendamentoDados() {
             </div>
             <div>
               <p className="font-label text-[10px] tracking-[0.2em] uppercase text-[#4A3728]/60">Resumo da sessão</p>
-              <p className="serif-regular text-[#4A3728]">Limpeza de Pele Diamond • 14:30 • 24 Out</p>
+              <p className="serif-regular text-[#4A3728]">Limpeza de Pele Diamond • 14:30 • {new Date().toLocaleDateString()}</p>
             </div>
           </div>
 
           <button
             type="submit"
-            className="group relative px-12 py-5 bg-[#4A3728] text-[#FDFCFB] rounded-full overflow-hidden transition-all duration-500 hover:scale-[1.02] active:scale-95 flex items-center gap-4"
+            disabled={loading}
+            className={`group relative px-12 py-5 bg-[#4A3728] text-[#FDFCFB] rounded-full overflow-hidden transition-all duration-500 flex items-center gap-4 ${loading ? 'opacity-50 cursor-not-allowed' : 'hover:scale-[1.02] active:scale-95'}`}
           >
-            <span className="font-label text-[11px] tracking-[0.3em] uppercase font-bold">Confirmar Agendamento</span>
-            <span className="material-symbols-outlined text-sm">arrow_forward</span>
+            {loading ? (
+              <span className="material-symbols-outlined animate-spin text-sm">refresh</span>
+            ) : (
+              <>
+                <span className="font-label text-[11px] tracking-[0.3em] uppercase font-bold">Confirmar Agendamento</span>
+                <span className="material-symbols-outlined text-sm">arrow_forward</span>
+              </>
+            )}
           </button>
         </div>
       </form>

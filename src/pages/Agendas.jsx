@@ -1,12 +1,82 @@
-import { useState } from 'react';
-import { appointments, nextAppointment } from '../data/mockData';
+import { useState, useEffect } from 'react';
+import { supabase } from '../lib/supabase';
+import { appointments as mockAppointments, nextAppointment } from '../data/mockData';
 
 const days = ['Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado', 'Domingo'];
 const daysDatesShort = ['14', '15', '16', '17', '18', '19', '20'];
 const hours = ['08:00', '09:00', '10:00', '11:00', '12:00', '13:00', '14:00', '15:00', '16:00', '17:00', '18:00'];
 
+// Helper to convert DB time (HH:MM) to pixel position (08:00 = 0px top, 09:00 = 60px)
+const timeToPixels = (timeStr) => {
+  if (!timeStr) return 0;
+  const [h, m] = timeStr.split(':').map(Number);
+  const startH = 8; // 08:00
+  if (h < startH) return 0;
+  // 60 pixels per hour
+  return ((h - startH) * 60) + m;
+};
+
 export default function Agendas() {
   const [weekLabel] = useState('14 - 20 Outubro, 2024');
+  const [appointments, setAppointments] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    async function fetchAppointments() {
+      try {
+        setLoading(true);
+        // We select the appointment details along with their joined client and service
+        const { data, error } = await supabase
+          .from('appointments')
+          .select(`
+            *,
+            clients(full_name),
+            services(name, duration_minutes)
+          `)
+          .order('appointment_date', { ascending: true })
+          .order('start_time', { ascending: true });
+
+        if (error) throw error;
+
+        if (data && data.length > 0) {
+          const formatted = data.map(apt => {
+            // Rough calculation for drawing
+            const top = timeToPixels(apt.start_time);
+            
+            // Assume 60 minutes if duration is not found
+            const duration = apt.services?.duration_minutes || 60; 
+            const height = duration; // 1 min = 1 px mapped height
+
+            // Determine day index (Mocked to just randomly distribute if exact date parsing isn't active)
+            const d = new Date(apt.appointment_date);
+            let dayIndex = d.getDay() - 1; // 0 = Mon
+            if (dayIndex < 0) dayIndex = 6; // Sunday fix
+
+            return {
+              id: apt.id,
+              name: apt.clients?.full_name || 'Cliente Novo',
+              procedure: apt.services?.name || 'Procedimento',
+              time: `${apt.start_time.substring(0, 5)} - ${apt.end_time ? apt.end_time.substring(0, 5) : '1:00h'}`,
+              day: dayIndex,
+              top: top,
+              height: height,
+              borderColor: 'border-primary',
+            };
+          });
+          setAppointments(formatted);
+        } else {
+          setAppointments(mockAppointments);
+        }
+      } catch (err) {
+        console.warn('Using fallback mock data for Agenda:', err.message);
+        setAppointments(mockAppointments);
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    fetchAppointments();
+  }, []);
 
   return (
     <div className="px-12 py-10">
@@ -29,7 +99,14 @@ export default function Agendas() {
 
       <div className="grid grid-cols-5 gap-6">
         {/* Calendar - 4 cols */}
-        <div className="col-span-4 bg-surface-container-lowest rounded-2xl editorial-shadow overflow-hidden">
+        <div className="col-span-4 bg-surface-container-lowest rounded-2xl editorial-shadow overflow-hidden relative">
+          
+          {loading && (
+            <div className="absolute inset-0 bg-white/40 backdrop-blur-sm z-20 flex items-center justify-center">
+              <span className="material-symbols-outlined animate-spin text-primary text-3xl">refresh</span>
+            </div>
+          )}
+
           {/* Day Headers */}
           <div className="calendar-grid border-b border-outline-variant/20">
             <div className="py-4 px-3"></div>
@@ -59,17 +136,17 @@ export default function Agendas() {
             {/* Appointment Cards */}
             {appointments.map((apt, i) => (
               <div
-                key={i}
-                className={`absolute rounded-xl p-3 bg-primary/5 border-l-2 ${apt.borderColor} hover:bg-primary/10 transition-colors cursor-pointer`}
+                key={apt.id || i}
+                className={`absolute rounded-xl p-3 bg-primary/5 border-l-2 ${apt.borderColor} hover:bg-primary/10 transition-colors cursor-pointer block-agenda-item z-10`}
                 style={{
-                  top: `${apt.top}px`,
-                  left: `calc(80px + ${apt.day} * ((100% - 80px) / 7) + 4px)`,
+                  top: `${Math.max(0, apt.top)}px`,
+                  left: `calc(80px + ${Math.max(0, apt.day)} * ((100% - 80px) / 7) + 4px)`,
                   width: `calc((100% - 80px) / 7 - 8px)`,
                   height: `${apt.height}px`,
                 }}
               >
-                <p className="text-[10px] text-primary font-semibold">{apt.name}</p>
-                <p className="text-[9px] text-secondary mt-0.5">{apt.procedure}</p>
+                <p className="text-[10px] text-primary font-semibold truncate bg-white/50 px-1 rounded-sm">{apt.name}</p>
+                <p className="text-[9px] text-secondary mt-0.5 truncate">{apt.procedure}</p>
                 <p className="text-[9px] text-outline mt-1">{apt.time}</p>
               </div>
             ))}
