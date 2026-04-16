@@ -114,6 +114,35 @@ export default function Suporte() {
     setSidebarOpen(false); // Fechar sidebar no mobile
   };
 
+  // Excluir ticket
+  const excluirTicket = async (e, ticketId) => {
+    e.stopPropagation();
+    if (!window.confirm('Excluir esta conversa permanentemente?')) return;
+
+    try {
+      const { error } = await supabase
+        .from('suporte_tickets')
+        .delete()
+        .eq('id', ticketId);
+
+      if (error) throw error;
+
+      // Remove do estado local imediatamente
+      setTickets(prev => prev.filter(t => t.id !== ticketId));
+
+      // Limpa o chat se o ticket excluído estava aberto
+      if (ticketAtivo?.id === ticketId) {
+        setTicketAtivo(null);
+        setMensagens([]);
+      }
+
+      showNotification('Conversa excluída com sucesso.', 'success');
+    } catch (err) {
+      console.error('Erro ao excluir ticket:', err);
+      showNotification('Erro ao excluir conversa.', 'error');
+    }
+  };
+
   // Enviar mensagem
   const enviarMensagem = async () => {
     if (!novaMensagem.trim() || !ticketAtivo || enviando) return;
@@ -276,13 +305,13 @@ export default function Suporte() {
                   <div
                     key={ticket.id}
                     onClick={() => selecionarTicket(ticket)}
-                    className={`p-4 border-b border-outline-variant/10 cursor-pointer hover:bg-primary/5 transition-all ${
+                    className={`group relative p-4 border-b border-outline-variant/10 cursor-pointer hover:bg-primary/5 transition-all ${
                       ticketAtivo?.id === ticket.id ? 'bg-primary/5 border-l-2 border-l-primary' : ''
                     }`}
                   >
                     <div className="flex items-center justify-between mb-1">
-                      <p className="text-sm font-semibold text-on-surface truncate">{ticket.titulo}</p>
-                      <span className="text-[10px] text-outline">
+                      <p className="text-sm font-semibold text-on-surface truncate pr-6">{ticket.titulo}</p>
+                      <span className="text-[10px] text-outline shrink-0">
                         {new Date(ticket.updated_at).toLocaleDateString('pt-BR')}
                       </span>
                     </div>
@@ -302,6 +331,15 @@ export default function Suporte() {
                         {ticket.status}
                       </span>
                     </div>
+
+                    {/* Botão lixeira — aparece no hover */}
+                    <button
+                      onClick={(e) => excluirTicket(e, ticket.id)}
+                      className="absolute top-3 right-3 w-7 h-7 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 hover:bg-red-50 transition-all duration-200"
+                      title="Excluir conversa"
+                    >
+                      <span className="material-symbols-outlined text-sm text-outline hover:text-red-500 transition-colors">delete</span>
+                    </button>
                   </div>
                 ))
               ) : (
