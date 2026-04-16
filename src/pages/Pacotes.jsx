@@ -19,6 +19,20 @@ export default function Pacotes() {
   
   // Estado para valor total calculado
   const [valorTotal, setValorTotal] = useState(0);
+  
+  // Estados para modal de novo procedimento
+  const [modalNovoProcedimento, setModalNovoProcedimento] = useState(false);
+  const [novoProcedimento, setNovoProcedimento] = useState({
+    name: '',
+    price_single: '',
+    duration: 60,
+    category: 'Facial'
+  });
+
+  // Estados para upload de imagem
+  const [imagemSelecionada, setImagemSelecionada] = useState(null);
+  const [previewImagem, setPreviewImagem] = useState(null);
+  const [uploadingImagem, setUploadingImagem] = useState(false);
 
   // Função para mostrar notificações
   const showNotification = (message, type = 'success') => {
@@ -101,6 +115,150 @@ export default function Pacotes() {
     }
   };
 
+  // Adicionar novo procedimento
+  const adicionarNovoProcedimento = async () => {
+    try {
+      // Validação detalhada
+      if (!novoProcedimento.name.trim()) {
+        showNotification('Nome do procedimento é obrigatório', 'error');
+        return;
+      }
+
+      if (!novoProcedimento.price_single || parseFloat(novoProcedimento.price_single) <= 0) {
+        showNotification('Preço deve ser maior que zero', 'error');
+        return;
+      }
+
+      console.log('Tentando adicionar procedimento:', novoProcedimento);
+
+      const payload = {
+        name: novoProcedimento.name.trim(),
+        price_single: parseFloat(novoProcedimento.price_single),
+        duration: parseInt(novoProcedimento.duration) || 60,
+        category: novoProcedimento.category,
+        is_active: true
+      };
+
+      console.log('Payload para Supabase:', payload);
+
+      const { data, error } = await supabase
+        .from('services')
+        .insert([payload])
+        .select()
+        .single();
+
+      if (error) {
+        console.error('Erro do Supabase:', error);
+        throw error;
+      }
+
+      console.log('Procedimento criado com sucesso:', data);
+
+      // Atualizar lista de serviços
+      await fetchServices();
+      
+      // Selecionar o novo procedimento automaticamente
+      setProcedimentoSelecionado(data.id);
+      setValorUnitario(parseFloat(data.price_single));
+
+      // Fechar modal e limpar form
+      setModalNovoProcedimento(false);
+      setNovoProcedimento({ name: '', price_single: '', duration: 60, category: 'Facial' });
+
+      showNotification('Procedimento adicionado com sucesso!', 'success');
+    } catch (err) {
+      console.error('Erro completo ao adicionar procedimento:', err);
+      
+      // Mensagem de erro mais detalhada
+      let errorMessage = 'Erro ao adicionar procedimento';
+      
+      if (err.message) {
+        errorMessage += `: ${err.message}`;
+      }
+      
+      if (err.code === '42501') {
+        errorMessage = 'Erro de permissão. Verifique as políticas RLS no Supabase.';
+      } else if (err.code === '42P01') {
+        errorMessage = 'Tabela "services" não encontrada. Execute o SQL no Supabase.';
+      }
+      
+      showNotification(errorMessage, 'error');
+    }
+  };
+
+  // Handler para seleção de imagem
+  const handleImagemSelecionada = (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      // Validar tipo de arquivo
+      if (!file.type.startsWith('image/')) {
+        showNotification('Por favor, selecione apenas arquivos de imagem', 'error');
+        return;
+      }
+
+      // Validar tamanho (máximo 5MB)
+      if (file.size > 5 * 1024 * 1024) {
+        showNotification('A imagem deve ter no máximo 5MB', 'error');
+        return;
+      }
+
+      setImagemSelecionada(file);
+
+      // Criar preview
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setPreviewImagem(reader.result);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  // Função para fazer upload da imagem no Supabase Storage
+  const uploadImagem = async () => {
+    if (!imagemSelecionada) return null;
+
+    try {
+      setUploadingImagem(true);
+
+      // Gerar nome único para o arquivo
+      const timestamp = Date.now();
+      const nomeArquivo = `${timestamp}-${imagemSelecionada.name.replace(/[^a-zA-Z0-9.-]/g, '_')}`;
+      const caminhoArquivo = `pacotes/${nomeArquivo}`;
+
+      console.log('Fazendo upload da imagem:', caminhoArquivo);
+
+      // Upload para o Supabase Storage
+      const { data, error } = await supabase.storage
+        .from('pacotes-imagens')
+        .upload(caminhoArquivo, imagemSelecionada, {
+          cacheControl: '3600',
+          upsert: false
+        });
+
+      if (error) {
+        console.error('Erro ao fazer upload:', error);
+        throw error;
+      }
+
+      console.log('Upload realizado com sucesso:', data);
+
+      // Obter URL pública da imagem
+      const { data: urlData } = supabase.storage
+        .from('pacotes-imagens')
+        .getPublicUrl(caminhoArquivo);
+
+      console.log('URL pública da imagem:', urlData.publicUrl);
+
+      return urlData.publicUrl;
+    } catch (err) {
+      console.error('Erro ao fazer upload da imagem:', err);
+      showNotification('Erro ao fazer upload da imagem', 'error');
+      return null;
+    } finally {
+      setUploadingImagem(false);
+    }
+  };
+
   // Criar pacote
   const criarPacote = async () => {
     try {
@@ -111,20 +269,42 @@ export default function Pacotes() {
 
       setSaving(true);
 
-      const { error } = await supabase
-        .from('pacotes_vendidos')
-        .insert([{
-          nome_pacote: nomePacote,
-          service_id: procedimentoSelecionado,
-          quantidade_sessoes: quantidadeSessoes,
-          valor_unitario: valorUnitario,
-          tipo_desconto: tipoDesconto,
-          desconto_valor: desconto,
-          valor_total: valorTotal,
-          client_id: null // Removido conforme solicitado
-        }]);
+      // Upload da imagem (se houver)
+      let imagemUrl = null;
+      if (imagemSelecionada) {
+        imagemUrl = await uploadImagem();
+        if (!imagemUrl) {
+          // Se o upload falhou, não continuar
+          setSaving(false);
+          return;
+        }
+      }
 
-      if (error) throw error;
+      const payload = {
+        nome_pacote: nomePacote,
+        service_id: procedimentoSelecionado,
+        quantidade_sessoes: quantidadeSessoes,
+        valor_unitario: valorUnitario,
+        desconto_tipo: tipoDesconto, // CORRIGIDO: era tipo_desconto
+        desconto_valor: desconto,
+        valor_total: valorTotal,
+        client_id: null,
+        imagem_url: imagemUrl // Adicionar URL da imagem
+      };
+
+      console.log('Criando pacote com payload:', payload);
+
+      const { data, error } = await supabase
+        .from('pacotes_vendidos')
+        .insert([payload])
+        .select();
+
+      if (error) {
+        console.error('Erro do Supabase ao criar pacote:', error);
+        throw error;
+      }
+
+      console.log('Pacote criado com sucesso:', data);
 
       await fetchPacotes();
 
@@ -135,11 +315,28 @@ export default function Pacotes() {
       setValorUnitario(0);
       setDesconto(15);
       setTipoDesconto('porcentagem');
+      setImagemSelecionada(null);
+      setPreviewImagem(null);
 
       showNotification('Pacote criado com sucesso!', 'success');
     } catch (err) {
-      console.error('Erro ao criar pacote:', err);
-      showNotification('Erro ao criar pacote', 'error');
+      console.error('Erro completo ao criar pacote:', err);
+      
+      let errorMessage = 'Erro ao criar pacote';
+      
+      if (err.message) {
+        errorMessage += `: ${err.message}`;
+      }
+      
+      if (err.code === '42501') {
+        errorMessage = 'Erro de permissão. Verifique as políticas RLS da tabela pacotes_vendidos.';
+      } else if (err.code === '42P01') {
+        errorMessage = 'Tabela "pacotes_vendidos" não encontrada. Execute o SQL no Supabase.';
+      } else if (err.code === '23503') {
+        errorMessage = 'Erro de chave estrangeira. Verifique se o procedimento existe.';
+      }
+      
+      showNotification(errorMessage, 'error');
     } finally {
       setSaving(false);
     }
@@ -208,18 +405,28 @@ export default function Pacotes() {
                   <label className="block text-[10px] tracking-widest uppercase text-secondary mb-2 font-semibold">
                     Procedimento *
                   </label>
-                  <select 
-                    value={procedimentoSelecionado}
-                    onChange={(e) => handleProcedimentoChange(e.target.value)}
-                    className="w-full bg-transparent border-0 border-b border-outline-variant pb-2 text-sm text-on-surface focus:border-primary focus:ring-0 focus:outline-none"
-                  >
-                    <option value="">Selecione um procedimento</option>
-                    {services.map(service => (
-                      <option key={service.id} value={service.id}>
-                        {service.name} - R$ {parseFloat(service.price_single).toFixed(2)}
-                      </option>
-                    ))}
-                  </select>
+                  <div className="flex items-center gap-2">
+                    <select 
+                      value={procedimentoSelecionado}
+                      onChange={(e) => handleProcedimentoChange(e.target.value)}
+                      className="flex-1 bg-transparent border-0 border-b border-outline-variant pb-2 text-sm text-on-surface focus:border-primary focus:ring-0 focus:outline-none"
+                    >
+                      <option value="">Selecione um procedimento</option>
+                      {services.map(service => (
+                        <option key={service.id} value={service.id}>
+                          {service.name}
+                        </option>
+                      ))}
+                    </select>
+                    <button
+                      type="button"
+                      onClick={() => setModalNovoProcedimento(true)}
+                      className="text-primary hover:text-primary/80 transition-colors"
+                      title="Adicionar novo procedimento"
+                    >
+                      <span className="material-symbols-outlined text-xl">add_circle</span>
+                    </button>
+                  </div>
                 </div>
 
                 {/* Quantidade de Sessões - Campo editável conforme solicitado */}
@@ -235,6 +442,55 @@ export default function Pacotes() {
                     onChange={(e) => setQuantidadeSessoes(parseInt(e.target.value) || 1)}
                     className="w-full bg-transparent border-0 border-b border-outline-variant pb-2 text-sm text-on-surface focus:border-primary focus:ring-0 focus:outline-none"
                   />
+                </div>
+
+                {/* Upload de Imagem */}
+                <div>
+                  <label className="block text-[10px] tracking-widest uppercase text-secondary mb-2 font-semibold">
+                    Imagem do Pacote (Opcional)
+                  </label>
+                  <div className="flex items-center gap-3">
+                    <input
+                      type="file"
+                      id="upload-imagem"
+                      accept="image/*"
+                      onChange={handleImagemSelecionada}
+                      className="hidden"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => document.getElementById('upload-imagem').click()}
+                      disabled={uploadingImagem}
+                      className="flex items-center gap-2 px-4 py-2 bg-primary/10 text-primary rounded-lg text-xs font-semibold hover:bg-primary/20 transition-all duration-300 disabled:opacity-50"
+                    >
+                      <span className="material-symbols-outlined text-base">cloud_upload</span>
+                      {uploadingImagem ? 'Enviando...' : 'Selecionar Imagem'}
+                    </button>
+                    {previewImagem && (
+                      <div className="relative w-20 h-20 rounded-lg overflow-hidden border-2 border-primary/20">
+                        <img 
+                          src={previewImagem} 
+                          alt="Preview" 
+                          className="w-full h-full object-cover"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setImagemSelecionada(null);
+                            setPreviewImagem(null);
+                          }}
+                          className="absolute top-1 right-1 bg-error text-white rounded-full p-0.5 hover:bg-error/80 transition-colors"
+                        >
+                          <span className="material-symbols-outlined text-sm">close</span>
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                  {imagemSelecionada && (
+                    <p className="text-[10px] text-secondary mt-1">
+                      {imagemSelecionada.name} ({(imagemSelecionada.size / 1024).toFixed(1)} KB)
+                    </p>
+                  )}
                 </div>
 
                 {/* Valor Unitário e Desconto */}
@@ -415,6 +671,113 @@ export default function Pacotes() {
           </div>
         </div>
       </div>
+
+      {/* Modal de Adicionar Novo Procedimento */}
+      {modalNovoProcedimento && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+          <div className="bg-surface-container-lowest rounded-2xl p-8 w-full max-w-md editorial-shadow">
+            <div className="flex items-center justify-between mb-6">
+              <h3 className="font-serif text-xl text-on-surface">Novo Procedimento</h3>
+              <button 
+                onClick={() => {
+                  setModalNovoProcedimento(false);
+                  setNovoProcedimento({ name: '', price_single: '', duration: 60, category: 'Facial' });
+                }}
+                className="text-secondary hover:text-on-surface transition-colors"
+              >
+                <span className="material-symbols-outlined">close</span>
+              </button>
+            </div>
+
+            <div className="space-y-5">
+              {/* Nome do Procedimento */}
+              <div>
+                <label className="block text-[10px] tracking-widest uppercase text-secondary mb-2 font-semibold">
+                  Nome do Procedimento *
+                </label>
+                <input
+                  type="text"
+                  value={novoProcedimento.name}
+                  onChange={(e) => setNovoProcedimento(prev => ({ ...prev, name: e.target.value }))}
+                  placeholder="Ex: Limpeza de Pele, Massagem..."
+                  className="w-full bg-transparent border-0 border-b border-outline-variant text-sm text-on-surface focus:border-primary focus:ring-0 py-2 placeholder:text-outline"
+                  required
+                />
+              </div>
+
+              {/* Preço */}
+              <div>
+                <label className="block text-[10px] tracking-widest uppercase text-secondary mb-2 font-semibold">
+                  Preço (R$) *
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={novoProcedimento.price_single}
+                  onChange={(e) => setNovoProcedimento(prev => ({ ...prev, price_single: e.target.value }))}
+                  placeholder="0.00"
+                  className="w-full bg-transparent border-0 border-b border-outline-variant text-sm text-on-surface focus:border-primary focus:ring-0 py-2 placeholder:text-outline"
+                  required
+                />
+              </div>
+
+              {/* Duração */}
+              <div>
+                <label className="block text-[10px] tracking-widest uppercase text-secondary mb-2 font-semibold">
+                  Duração (minutos)
+                </label>
+                <input
+                  type="number"
+                  min="15"
+                  step="15"
+                  value={novoProcedimento.duration}
+                  onChange={(e) => setNovoProcedimento(prev => ({ ...prev, duration: parseInt(e.target.value) || 60 }))}
+                  className="w-full bg-transparent border-0 border-b border-outline-variant text-sm text-on-surface focus:border-primary focus:ring-0 py-2"
+                />
+              </div>
+
+              {/* Categoria */}
+              <div>
+                <label className="block text-[10px] tracking-widest uppercase text-secondary mb-2 font-semibold">
+                  Categoria
+                </label>
+                <select
+                  value={novoProcedimento.category}
+                  onChange={(e) => setNovoProcedimento(prev => ({ ...prev, category: e.target.value }))}
+                  className="w-full bg-transparent border-0 border-b border-outline-variant text-sm text-on-surface focus:border-primary focus:ring-0 py-2"
+                >
+                  <option value="Facial">Facial</option>
+                  <option value="Corporal">Corporal</option>
+                  <option value="Massagem">Massagem</option>
+                  <option value="Depilação">Depilação</option>
+                  <option value="Estética Avançada">Estética Avançada</option>
+                  <option value="Outro">Outro</option>
+                </select>
+              </div>
+            </div>
+
+            {/* Botões */}
+            <div className="flex items-center gap-3 mt-8">
+              <button
+                onClick={() => {
+                  setModalNovoProcedimento(false);
+                  setNovoProcedimento({ name: '', price_single: '', duration: 60, category: 'Facial' });
+                }}
+                className="flex-1 px-4 py-3 bg-surface-container text-on-surface rounded-xl text-xs font-semibold tracking-widest uppercase hover:bg-surface-container-high transition-all duration-300"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={adicionarNovoProcedimento}
+                className="flex-1 px-4 py-3 bg-primary text-on-primary rounded-xl text-xs font-semibold tracking-widest uppercase hover:opacity-90 transition-all duration-300"
+              >
+                Adicionar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
