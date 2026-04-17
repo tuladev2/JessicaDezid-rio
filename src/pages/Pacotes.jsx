@@ -34,6 +34,10 @@ export default function Pacotes() {
   const [previewImagem, setPreviewImagem] = useState(null);
   const [uploadingImagem, setUploadingImagem] = useState(false);
 
+  // Estado para exclusão
+  const [pacoteParaExcluir, setPacoteParaExcluir] = useState(null); // objeto pacote ou null
+  const [excluindo, setExcluindo] = useState(false);
+
   // Função para mostrar notificações
   const showNotification = (message, type = 'success') => {
     setNotification({ message, type });
@@ -341,6 +345,46 @@ export default function Pacotes() {
     }
   };
 
+  // Excluir pacote
+  const deletePacote = async () => {
+    if (!pacoteParaExcluir) return;
+    setExcluindo(true);
+    try {
+      const { count, error: countErr } = await supabase
+        .from('agendamentos')
+        .select('id', { count: 'exact', head: true })
+        .eq('plano_pacote_id', pacoteParaExcluir.id)
+        .neq('status', 'Cancelado');
+
+      if (countErr) throw countErr;
+
+      if (count > 0) {
+        showNotification(
+          `Não é possível excluir: este pacote possui ${count} agendamento${count > 1 ? 's' : ''} ativo${count > 1 ? 's' : ''}.`,
+          'error'
+        );
+        setPacoteParaExcluir(null);
+        return;
+      }
+
+      const { error } = await supabase
+        .from('planos_pacotes')
+        .delete()
+        .eq('id', pacoteParaExcluir.id);
+
+      if (error) throw error;
+
+      setPacotes(prev => prev.filter(p => p.id !== pacoteParaExcluir.id));
+      showNotification('Pacote excluído com sucesso!', 'success');
+      setPacoteParaExcluir(null);
+    } catch (err) {
+      console.error('Erro ao excluir pacote:', err);
+      showNotification(`Erro ao excluir: ${err.message}`, 'error');
+    } finally {
+      setExcluindo(false);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-[#FDF8F3]">
       <div className="px-4 lg:px-12 py-6 lg:py-10">
@@ -573,6 +617,7 @@ export default function Pacotes() {
                     <th className="text-left py-4 px-4 lg:px-6 text-[10px] tracking-widest uppercase text-secondary font-medium">Valor Unitário</th>
                     <th className="text-left py-4 px-4 lg:px-6 text-[10px] tracking-widest uppercase text-secondary font-medium">Valor Total</th>
                     <th className="text-center py-4 px-4 lg:px-6 text-[10px] tracking-widest uppercase text-secondary font-medium">Status</th>
+                    <th className="text-center py-4 px-4 lg:px-6 text-[10px] tracking-widest uppercase text-secondary font-medium">Ações</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -622,6 +667,15 @@ export default function Pacotes() {
                             }`}>
                               {pacote.status}
                             </span>
+                          </td>
+                          <td className="py-4 px-4 lg:px-6 text-center">
+                            <button
+                              onClick={() => setPacoteParaExcluir(pacote)}
+                              title="Excluir pacote"
+                              className="w-8 h-8 flex items-center justify-center rounded-full text-outline hover:text-red-600 hover:bg-red-50 transition-all duration-200 mx-auto"
+                            >
+                              <span className="material-symbols-outlined text-base">delete</span>
+                            </button>
                           </td>
                         </tr>
                       );
@@ -745,6 +799,45 @@ export default function Pacotes() {
                 className="flex-1 px-4 py-3 bg-primary text-on-primary rounded-xl text-xs font-semibold tracking-widest uppercase hover:opacity-90 transition-all duration-300"
               >
                 Adicionar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de Confirmação de Exclusão */}
+      {pacoteParaExcluir && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-2xl p-8 w-full max-w-sm shadow-2xl">
+            <div className="flex flex-col items-center text-center gap-4">
+              <div className="w-14 h-14 rounded-full bg-red-50 flex items-center justify-center">
+                <span className="material-symbols-outlined text-red-500 text-2xl">delete_forever</span>
+              </div>
+              <h3 className="font-serif text-lg text-on-surface">Excluir Pacote</h3>
+              <p className="text-sm text-secondary leading-relaxed">
+                Tem certeza que deseja excluir o pacote{' '}
+                <span className="font-semibold text-on-surface">"{pacoteParaExcluir.nome_pacote}"</span>?
+                <br />Esta ação não pode ser desfeita.
+              </p>
+            </div>
+            <div className="flex gap-3 mt-8">
+              <button
+                onClick={() => setPacoteParaExcluir(null)}
+                disabled={excluindo}
+                className="flex-1 py-3 bg-surface-container text-on-surface rounded-xl text-xs font-semibold tracking-widest uppercase hover:bg-surface-container-high transition-all disabled:opacity-50"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={deletePacote}
+                disabled={excluindo}
+                className="flex-1 py-3 bg-red-600 text-white rounded-xl text-xs font-semibold tracking-widest uppercase hover:bg-red-700 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                {excluindo ? (
+                  <><span className="material-symbols-outlined animate-spin text-sm">refresh</span> Excluindo...</>
+                ) : (
+                  'Excluir'
+                )}
               </button>
             </div>
           </div>

@@ -64,17 +64,22 @@ export default function Clientes() {
     try {
       const { data, error } = await supabase
         .from('prontuarios')
-        .select(`
-          *,
-          clients(id, full_name, avatar_url)
-        `)
+        .select(`*, clients(id, full_name, avatar_url)`)
         .order('updated_at', { ascending: false })
         .limit(10);
-      
-      if (error) throw error;
+
+      // Ignorar se tabela ainda não existe
+      if (error) {
+        const ignorar = error.message?.includes('relation') ||
+                        error.message?.includes('does not exist') ||
+                        error.message?.includes('406');
+        if (!ignorar) throw error;
+      }
+
       setFichasRecentes(data || []);
     } catch (err) {
-      console.error('Erro ao buscar fichas recentes:', err);
+      console.warn('[Clientes] Fichas recentes indisponíveis:', err.message);
+      setFichasRecentes([]);
     }
   };
 
@@ -82,33 +87,45 @@ export default function Clientes() {
   const fetchProntuario = async (clienteId) => {
     try {
       setLoadingProntuario(true);
-      
-      // Buscar prontuário
+
       const { data: prontuarioData, error: prontuarioError } = await supabase
         .from('prontuarios')
         .select('*')
         .eq('client_id', clienteId)
         .single();
-      
-      if (prontuarioError && prontuarioError.code !== 'PGRST116') {
-        throw prontuarioError;
+
+      // PGRST116 = nenhum registro encontrado (normal para cliente novo)
+      // 406 / PGRST200 = tabela não existe ainda — tratar silenciosamente
+      if (prontuarioError) {
+        const ignorar = ['PGRST116', 'PGRST200'].includes(prontuarioError.code) ||
+                        prontuarioError.message?.includes('406') ||
+                        prontuarioError.message?.includes('relation') ||
+                        prontuarioError.message?.includes('does not exist');
+        if (!ignorar) throw prontuarioError;
       }
-      
+
       setProntuario(prontuarioData || null);
-      
+
       // Buscar evoluções
       const { data: evolucoesData, error: evolucoesError } = await supabase
         .from('evolucoes')
         .select('*')
         .eq('client_id', clienteId)
         .order('created_at', { ascending: false });
-      
-      if (evolucoesError) throw evolucoesError;
+
+      if (evolucoesError) {
+        const ignorar = evolucoesError.message?.includes('relation') ||
+                        evolucoesError.message?.includes('does not exist');
+        if (!ignorar) throw evolucoesError;
+      }
+
       setEvolucoes(evolucoesData || []);
-      
+
     } catch (err) {
-      console.error('Erro ao buscar prontuário:', err);
-      showNotification('Erro ao carregar prontuário', 'error');
+      console.warn('[Clientes] Erro ao buscar prontuário:', err.message);
+      // Não exibir notificação de erro — tabela pode ainda não existir
+      setProntuario(null);
+      setEvolucoes([]);
     } finally {
       setLoadingProntuario(false);
     }

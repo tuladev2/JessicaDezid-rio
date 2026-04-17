@@ -54,7 +54,7 @@ export default function Configuracoes() {
           const horariosDb = DIAS_PADRAO.map(padrao => {
             const registro = configData.find(r => r.dia === padrao.dia);
             return registro
-              ? { dia: registro.dia, inicio: registro.inicio || '', fim: registro.fim || '', ativo: registro.ativo }
+              ? { dia: registro.dia, inicio: registro.inicio || '', fim: registro.fim || '', ativo: registro.ativo ?? padrao.ativo }
               : padrao;
           });
           setHorarios(horariosDb);
@@ -145,8 +145,9 @@ export default function Configuracoes() {
       // Upsert horários (usa dia como chave de conflito)
       const horariosPayload = horarios.map(h => ({
         dia: h.dia,
-        inicio: h.ativo ? h.inicio : null,
-        fim: h.ativo ? h.fim : null,
+        // Converter string vazia para null — Supabase rejeita "" em colunas TIME
+        inicio: h.ativo && h.inicio?.trim() ? h.inicio.trim() : null,
+        fim:    h.ativo && h.fim?.trim()    ? h.fim.trim()    : null,
         ativo: h.ativo,
       }));
 

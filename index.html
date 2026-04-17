@@ -2,16 +2,63 @@
 <html lang="pt-BR">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+
+    <!-- ── Identidade ──────────────────────────────────────────────── -->
     <title>Jessica Dezidério | Estética Premium</title>
-    <meta name="description" content="Painel administrativo da clínica de estética premium Jessica Dezidério - The Sanctuary." />
-    <!-- Google Fonts loaded via link tags to avoid CSS @import ordering issues -->
+    <meta name="description" content="Santuário de beleza e estética premium. Agende seu momento de cuidado com Jessica Dezidério." />
+
+    <!-- ── Theme color — bege unificado (Android, Chrome, Samsung) ── -->
+    <meta name="theme-color" content="#FDFBF7" />
+
+    <!-- ── Windows / Edge PWA ──────────────────────────────────────── -->
+    <meta name="msapplication-TileColor" content="#FDFBF7" />
+    <meta name="msapplication-TileImage" content="/icons/icon-192.svg" />
+    <meta name="msapplication-config" content="none" />
+
+    <!-- ── PWA Manifest ────────────────────────────────────────────── -->
+    <link rel="manifest" href="/manifest.json" />
+
+    <!-- ── Ícones ──────────────────────────────────────────────────── -->
+    <link rel="icon" type="image/svg+xml" href="/icons/icon-192.svg" />
+    <link rel="apple-touch-icon" href="/icons/icon-192.svg" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/icons/icon-192.svg" />
+    <link rel="apple-touch-icon" sizes="192x192" href="/icons/icon-192.svg" />
+    <link rel="apple-touch-icon" sizes="512x512" href="/icons/icon-512.svg" />
+
+    <!-- ── iOS / Safari PWA ────────────────────────────────────────── -->
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="JD Estética" />
+    <meta name="mobile-web-app-capable" content="yes" />
+
+    <!-- ── Open Graph ──────────────────────────────────────────────── -->
+    <meta property="og:title" content="Jessica Dezidério | Estética Premium" />
+    <meta property="og:description" content="Santuário de beleza e estética premium. Agende seu momento de cuidado." />
+    <meta property="og:type" content="website" />
+    <meta property="og:image" content="/icons/icon-512.svg" />
+
+    <!-- ── Fontes ──────────────────────────────────────────────────── -->
     <link href="https://fonts.googleapis.com/css2?family=Noto+Serif:ital,wght@0,400;0,700;1,400&family=Manrope:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet">
   </head>
   <body class="bg-background text-on-surface font-sans antialiased">
     <div id="root"></div>
     <script type="module" src="/src/main.jsx"></script>
+
+    <!-- ── Service Worker ──────────────────────────────────────────── -->
+    <script>
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+          navigator.serviceWorker.register('/sw.js', { scope: '/' })
+            .then((reg) => {
+              console.log('[PWA] SW registrado:', reg.scope);
+              // Verificar atualizações a cada 60s
+              setInterval(() => reg.update(), 60000);
+            })
+            .catch((err) => console.warn('[PWA] Falha no SW:', err));
+        });
+      }
+    </script>
   </body>
 </html>

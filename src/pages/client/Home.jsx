@@ -21,7 +21,12 @@ export default function Home() {
               Agendar sua consulta
             </Link>
             <div className="flex items-center gap-6">
-              <a className="text-[#4A3728] hover:text-[#775841] transition-colors duration-300 flex items-center gap-2" href="#">
+              <a
+                className="text-[#4A3728] hover:text-[#775841] transition-colors duration-300 flex items-center gap-2"
+                href="https://www.instagram.com/dezideriojessica_estetica?utm_source=ig_web_button_share_sheet&igsh=ZDNlZDc0MzIxNw=="
+                target="_blank"
+                rel="noopener noreferrer"
+              >
                 <span className="material-symbols-outlined text-[20px]">photo_camera</span>
                 <span className="font-label text-[10px] tracking-widest uppercase">Instagram</span>
               </a>
@@ -37,12 +42,23 @@ export default function Home() {
           <div className="relative w-full aspect-[2/3] max-h-[800px] overflow-hidden rounded-3xl md:rounded-[4rem] shadow-2xl shadow-[#4A3728]/5 bg-[#FDFCFB]">
             <img
               alt="Jessica Dezidério"
-              className="w-full h-full object-contain"
-              src="https://lh3.googleusercontent.com/aida/ADBb0ujQ16CqgmLmqedDgDUoHuXwlmK2rZROMeIL7ieDC2hTkU2xevMJG95yexvNhv2OCQymF2rv8viLnhEC6H5kMtm7ispYa_Y255ISImXj8WMDyq9ZlINNV3m-mqWwwn_TSEvgmY6NOsfTVhdLBG5GQLHKisBUZkQGWWw-T5XbxFSJxMUQdbOUOOpnp7M6WQrvOdHmu_J1ENlok4ID_D3EXaYtsLXwyd9_5tvWOOb0i2_t0o5JweIlINH5Zrv_mfxyv1Z_cLsDmH_RIg"
+              className="w-full h-full object-cover object-top"
+              src="/Jessica.jpg.jpeg"
+              onError={(e) => {
+                // Fallback enquanto a imagem local não estiver disponível
+                e.target.src = 'https://lh3.googleusercontent.com/aida/ADBb0ujQ16CqgmLmqedDgDUoHuXwlmK2rZROMeIL7ieDC2hTkU2xevMJG95yexvNhv2OCQymF2rv8viLnhEC6H5kMtm7ispYa_Y255ISImXj8WMDyq9ZlINNV3m-mqWwwn_TSEvgmY6NOsfTVhdLBG5GQLHKisBUZkQGWWw-T5XbxFSJxMUQdbOUOOpnp7M6WQrvOdHmu_J1ENlok4ID_D3EXaYtsLXwyd9_5tvWOOb0i2_t0o5JweIlINH5Zrv_mfxyv1Z_cLsDmH_RIg';
+              }}
             />
             <div className="absolute inset-0 bg-gradient-to-t from-[#FDFCFB]/10 to-transparent"></div>
           </div>
         </div>
+      </section>
+
+      {/* Frase de Impacto */}
+      <section className="py-16 px-6 max-w-3xl mx-auto text-center">
+        <p className="font-headline italic text-xl md:text-2xl text-[#775841] leading-relaxed tracking-wide">
+          "Sua pele é o seu templo.<br className="hidden md:block" /> Cuide dela com quem entende de excelência."
+        </p>
       </section>
 
       {/* Filosofia Section */}

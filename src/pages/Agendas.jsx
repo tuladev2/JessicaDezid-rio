@@ -5,13 +5,13 @@ import AgendamentoModal from '../components/AgendamentoModal';
 const days = ['Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado', 'Domingo'];
 const hours = ['08:00', '09:00', '10:00', '11:00', '12:00', '13:00', '14:00', '15:00', '16:00', '17:00', '18:00'];
 
-// Helper para converter horário em posição em pixels
+// Helper para converter horário em posição em pixels (100px = 1 hora)
 const timeToPixels = (timeStr) => {
   if (!timeStr) return 0;
   const [h, m] = timeStr.split(':').map(Number);
   const startH = 8; // 08:00
   if (h < startH) return 0;
-  return ((h - startH) * 60) + m; // 60px por hora
+  return ((h - startH) * 60 + m) * (100 / 60); // 100px por hora
 };
 
 // Helper para obter datas da semana
@@ -95,13 +95,22 @@ export default function Agendas() {
       const { data, error } = await supabase
         .from('agendamentos')
         .select(`
-          *,
+          id,
+          data,
+          horario_inicio,
+          horario_fim,
+          status,
+          valor,
+          notas,
+          cliente_id,
+          servico_id,
+          plano_pacote_id,
           clients(full_name, phone, cpf),
           planos_pacotes(nome_pacote, procedimento)
         `)
         .gte('data', startDate)
         .lte('data', endDate)
-        .eq('status', 'Confirmado')
+        .neq('status', 'Cancelado')
         .order('data', { ascending: true })
         .order('horario_inicio', { ascending: true });
 
@@ -110,43 +119,48 @@ export default function Agendas() {
       const formatted = (data || []).map(apt => {
         const aptDate = new Date(apt.data + 'T00:00:00');
         const dayIndex = aptDate.getDay() === 0 ? 6 : aptDate.getDay() - 1; // Segunda = 0
-        
-        // Calcular altura baseada no tempo entre início e fim
+
         const [startH, startM] = apt.horario_inicio.split(':').map(Number);
         const [endH, endM] = apt.horario_fim.split(':').map(Number);
         const durationMinutes = (endH * 60 + endM) - (startH * 60 + startM);
-        
+
+        // Resolver nome do procedimento: pacote > notas > fallback
+        const procedure =
+          apt.planos_pacotes?.procedimento ||
+          apt.planos_pacotes?.nome_pacote ||
+          apt.notas ||
+          'Procedimento';
+
         return {
           id: apt.id,
           name: apt.clients?.full_name || 'Cliente',
-          procedure: apt.planos_pacotes?.procedimento || 'Procedimento',
-          time: `${apt.horario_inicio} - ${apt.horario_fim}`,
+          procedure,
+          time: `${apt.horario_inicio.slice(0, 5)} - ${apt.horario_fim.slice(0, 5)}`,
           day: dayIndex,
-          top: timeToPixels(apt.horario_inicio),
-          height: Math.max(40, durationMinutes),
-          borderColor: 'border-primary',
-          avatar: null,
+          // Offset de 2px para não encostar na linha divisória de cima
+          top: timeToPixels(apt.horario_inicio) + 2,
+          // Subtrair 4px (2px top + 2px bottom) para não encostar na linha de baixo
+          height: Math.max(46, durationMinutes * (100 / 60) - 4),
           status: apt.status,
-          room: 'sala01',
           phone: apt.clients?.phone,
           cpf: apt.clients?.cpf,
           valor: apt.valor,
-          cliente_id: apt.cliente_id,
           agendamento_id: apt.id
         };
       });
 
       setAppointments(formatted);
-      
-      // Calcular capacidade das salas (baseado em agendamentos simultâneos)
-      const roomCounts = {};
+
+      // Capacidade baseada no máximo simultâneo do dia
+      const simultaneos = {};
       formatted.forEach(apt => {
-        const timeSlot = `${apt.day}-${apt.time.split(' - ')[0]}`;
-        roomCounts[timeSlot] = (roomCounts[timeSlot] || 0) + 1;
+        const key = `${apt.day}-${apt.time.split(' - ')[0]}`;
+        simultaneos[key] = (simultaneos[key] || 0) + 1;
       });
+      const maxSimultaneo = Object.values(simultaneos).reduce((a, b) => Math.max(a, b), 0);
 
       setRoomCapacity({
-        sala01: { current: Math.min(Object.values(roomCounts).reduce((a, b) => Math.max(a, b), 0), 8), max: 8 },
+        sala01: { current: Math.min(maxSimultaneo, 8), max: 8 },
         sala02: { current: 0, max: 8 },
         sala03: { current: 0, max: 8 }
       });
@@ -400,33 +414,56 @@ export default function Agendas() {
                 </div>
               ))}
 
-              {/* Cards de Agendamento */}
-              {appointments.map((apt) => (
-                <div
-                  key={apt.id}
-                  className={`absolute rounded-xl p-2 bg-primary/5 border-l-2 ${apt.borderColor} hover:bg-primary/10 transition-colors cursor-pointer z-10`}
-                  style={{
-                    top: `${Math.max(0, apt.top)}px`,
-                    left: `calc(80px + ${Math.max(0, apt.day)} * ((100% - 80px) / 7) + 4px)`,
-                    width: `calc((100% - 80px) / 7 - 8px)`,
-                    height: `${Math.max(40, apt.height)}px`,
-                  }}
-                  onClick={() => {
-                    setSelectedAppointment(apt);
-                    setDetailsModalOpen(true);
-                  }}
-                >
-                  <p className="text-[9px] text-primary font-semibold truncate bg-white/50 px-1 rounded-sm leading-tight">
-                    {apt.name}
-                  </p>
-                  <p className="text-[8px] text-secondary mt-0.5 truncate leading-tight">
-                    {apt.procedure}
-                  </p>
-                  <p className="text-[8px] text-outline mt-1 leading-tight">
-                    {apt.time.split(' - ')[0]}
-                  </p>
-                </div>
-              ))}
+              {/* Cards de Agendamento — posicionados absolutamente sobre a grade */}
+              {appointments.map((apt, idx) => {
+                // Detectar sobreposição no mesmo dia/horário para posicionar lado a lado
+                const overlap = appointments.filter(
+                  (a, i) => i < idx && a.day === apt.day &&
+                    Math.abs(a.top - apt.top) < apt.height
+                ).length;
+                const overlapTotal = appointments.filter(
+                  a => a.day === apt.day && Math.abs(a.top - apt.top) < apt.height
+                ).length;
+                const widthFraction = overlapTotal > 1 ? 1 / overlapTotal : 1;
+                const leftOffset = overlap * widthFraction;
+
+                return (
+                  <div
+                    key={apt.id}
+                    className="absolute rounded-md shadow-sm cursor-pointer z-10 overflow-hidden
+                               bg-[#f5ede8] border border-[#c9a98a]/40 hover:bg-[#ede0d8] 
+                               hover:border-[#b8906f] hover:shadow-md transition-all duration-200"
+                    style={{
+                      top: `${apt.top}px`,
+                      left: `calc(80px + (${apt.day} + ${leftOffset}) * ((100% - 80px) / 7) + 3px)`,
+                      width: `calc((100% - 80px) / 7 * ${widthFraction} - 6px)`,
+                      height: `${apt.height}px`,
+                    }}
+                    onClick={() => {
+                      setSelectedAppointment(apt);
+                      setDetailsModalOpen(true);
+                    }}
+                  >
+                    {/* Barra lateral accent */}
+                    <div className="absolute left-0 top-0 bottom-0 w-[3px] bg-[#8b5e3c]" />
+
+                    {/* Conteúdo — centralizado verticalmente, afastado das linhas divisórias */}
+                    <div className="flex flex-col justify-center h-full pl-3 pr-2 py-1.5">
+                      <p className="text-[10px] font-semibold text-[#4A3728] truncate leading-snug">
+                        {apt.name}
+                      </p>
+                      <p className="text-[9px] text-[#7a5c42] truncate leading-snug mt-0.5">
+                        {apt.procedure}
+                      </p>
+                      {apt.height >= 64 && (
+                        <p className="text-[8px] text-[#a08060] leading-snug mt-0.5 tabular-nums">
+                          {apt.time}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           )}
         </div>
@@ -501,7 +538,7 @@ export default function Agendas() {
                   {appointments.filter(apt => {
                     const today = new Date().toISOString().split('T')[0];
                     const aptDate = weekDates[apt.day]?.toISOString().split('T')[0];
-                    return aptDate === today && apt.status === 'confirmed';
+                    return aptDate === today && apt.status === 'Confirmado';
                   }).length}
                 </span>
               </div>

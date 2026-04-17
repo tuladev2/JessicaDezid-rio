@@ -2,6 +2,7 @@ import { Outlet } from 'react-router-dom';
 import ClientNavbar from './ClientNavbar';
 import ClientFooter from './ClientFooter';
 import MobileNav from './MobileNav';
+import InstallPrompt from './InstallPrompt';
 
 export default function ClientLayout() {
   return (
@@ -10,6 +11,7 @@ export default function ClientLayout() {
       <Outlet />
       <ClientFooter />
       <MobileNav />
+      <InstallPrompt />
     </div>
   );
 }
