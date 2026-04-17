@@ -1,9 +1,11 @@
-import { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { useState, useEffect } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
 
 export default function AgendamentoDados() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const origem = searchParams.get('origem') || 'pacote'; // 'servico' ou 'pacote'
   
   const [formData, setFormData] = useState({
     name: '',
@@ -12,56 +14,234 @@ export default function AgendamentoDados() {
     cpf: ''
   });
   const [loading, setLoading] = useState(false);
+  const [cpfLoading, setCpfLoading] = useState(false);
+  const [clienteExistente, setClienteExistente] = useState(null);
+  const [itemSelecionado, setItemSelecionado] = useState(null); // pacote ou serviço
+  const [sessoesPacote, setSessoesPacote] = useState(null);
+
+  // Carregar pacote ou serviço selecionado do localStorage
+  useEffect(() => {
+    const pacote = localStorage.getItem('pacote_selecionado');
+    const servico = localStorage.getItem('servico_selecionado');
+
+    console.log('[AgendamentoDados] localStorage pacote:', pacote);
+    console.log('[AgendamentoDados] localStorage servico:', servico);
+
+    if (pacote) {
+      try {
+        const parsed = JSON.parse(pacote);
+        console.log('[AgendamentoDados] Pacote carregado:', parsed);
+        setItemSelecionado({ ...parsed, tipo: 'pacote' });
+      } catch (err) {
+        console.warn('Erro ao carregar pacote do localStorage:', err);
+        navigate('/tratamentos');
+      }
+    } else if (servico) {
+      try {
+        const parsed = JSON.parse(servico);
+        console.log('[AgendamentoDados] Serviço carregado:', parsed);
+        setItemSelecionado({ ...parsed, tipo: 'servico_avulso' });
+      } catch (err) {
+        console.warn('Erro ao carregar serviço do localStorage:', err);
+        navigate('/agendar');
+      }
+    } else {
+      console.warn('[AgendamentoDados] Nenhum item no localStorage, redirecionando...');
+      navigate(origem === 'servico' ? '/agendar' : '/tratamentos');
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Função para buscar cliente por CPF
+  const buscarClientePorCPF = async (cpf) => {
+    if (!cpf || cpf.length < 11) return;
+    
+    setCpfLoading(true);
+    try {
+      const { data: cliente, error: clienteError } = await supabase
+        .from('clients')
+        .select('*')
+        .ilike('cpf', `%${cpf}%`)
+        .single();
+
+      if (clienteError && clienteError.code !== 'PGRST116') {
+        throw clienteError;
+      }
+
+      if (cliente) {
+        setClienteExistente(cliente);
+        setFormData(prev => ({
+          ...prev,
+          name: cliente.full_name || '',
+          phone: cliente.phone || '',
+          birth: cliente.birth_date ? formatDateToBR(cliente.birth_date) : ''
+        }));
+
+        // Buscar sessões disponíveis
+        const { data: pacotes, error: pacotesError } = await supabase
+          .from('pacotes_vendidos')
+          .select('*')
+          .eq('cliente_id', cliente.id)
+          .gt('sessoes_restantes', 0)
+          .eq('status', 'ativo');
+
+        if (!pacotesError && pacotes && pacotes.length > 0) {
+          const totalSessoes = pacotes.reduce((sum, p) => sum + p.sessoes_restantes, 0);
+          setSessoesPacote(totalSessoes);
+        }
+
+        // Cliente existente — ir direto para horário sem precisar submeter o form
+        const clienteData = {
+          id: cliente.id,
+          nome: cliente.full_name,
+          telefone: cliente.phone,
+          cpf: cpf,
+          isExistente: true,
+          sessoesPacote: null
+        };
+        localStorage.setItem('cliente_agendamento', JSON.stringify(clienteData));
+
+        // Pequeno delay para mostrar a mensagem de boas-vindas antes de navegar
+        setTimeout(() => {
+          navigate('/agendar/horario');
+        }, 1500);
+
+      } else {
+        setClienteExistente(null);
+        setSessoesPacote(null);
+        setFormData(prev => ({
+          ...prev,
+          name: '',
+          phone: '',
+          birth: ''
+        }));
+      }
+    } catch (err) {
+      console.warn('Erro ao buscar cliente:', err);
+      setClienteExistente(null);
+      setSessoesPacote(null);
+    } finally {
+      setCpfLoading(false);
+    }
+  };
+
+  // Formatar data para DD/MM/AAAA
+  const formatDateToBR = (dateString) => {
+    if (!dateString) return '';
+    const date = new Date(dateString);
+    return date.toLocaleDateString('pt-BR');
+  };
 
   const handleChange = (e) => {
-    setFormData({ ...formData, [e.target.name]: e.target.value });
+    const { name, value } = e.target;
+    setFormData({ ...formData, [name]: value });
+    
+    // Se mudou o CPF, buscar cliente
+    if (name === 'cpf') {
+      const cpfLimpo = value.replace(/\D/g, '');
+      if (cpfLimpo.length === 11) {
+        buscarClientePorCPF(cpfLimpo);
+      } else {
+        setClienteExistente(null);
+        setSessoesPacote(null);
+      }
+    }
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    
+    const cpfLimpo = formData.cpf.replace(/\D/g, '');
+
+    console.log('[AgendamentoDados] Dados no momento do envio:', {
+      nome: formData.name,
+      cpf: cpfLimpo,
+      telefone: formData.phone,
+      itemSelecionado,
+      clienteExistente: clienteExistente?.id || null
+    });
+
+    if (!cpfLimpo || cpfLimpo.length !== 11) {
+      alert('Por favor, informe um CPF válido com 11 dígitos.');
+      return;
+    }
+
+    // Se cliente já foi identificado via busca automática de CPF,
+    // só salvar no localStorage e navegar — sem nova chamada ao banco
+    if (clienteExistente) {
+      const clienteAgendamentoData = {
+        id: clienteExistente.id,
+        nome: clienteExistente.full_name,
+        telefone: clienteExistente.phone || formData.phone,
+        cpf: cpfLimpo,
+        isExistente: true,
+        sessoesPacote: sessoesPacote
+      };
+      localStorage.setItem('cliente_agendamento', JSON.stringify(clienteAgendamentoData));
+      navigate('/agendar/horario');
+      return;
+    }
+
     setLoading(true);
     
     try {
-      // 1. Inserir ou recuperar o Cliente
-      // Parse rough da data de nascimento DD/MM/AAAA para AAAA-MM-DD
       let birthDate = null;
       if (formData.birth && formData.birth.length === 10) {
         const [d, m, y] = formData.birth.split('/');
         birthDate = `${y}-${m}-${d}`;
       }
 
-      const { data: clientData, error: clientErr } = await supabase
+      // Upsert: cria se não existe, atualiza se já existe (conflito no CPF)
+      const { data: cliente, error: clienteErr } = await supabase
         .from('clients')
-        .insert([{
-          full_name: formData.name || 'Cliente Sem Nome',
-          phone: formData.phone || '',
-          birth_date: birthDate,
-          notes: `CPF Info: ${formData.cpf}`
-        }])
-        .select()
+        .upsert(
+          {
+            full_name: formData.name || 'Cliente Sem Nome',
+            phone: formData.phone || '',
+            birth_date: birthDate,
+            cpf: cpfLimpo
+          },
+          {
+            onConflict: 'cpf',        // coluna com unique constraint
+            ignoreDuplicates: false   // atualiza os demais campos se CPF já existe
+          }
+        )
+        .select('id, full_name, phone')
         .single();
 
-      // Toleramos o erro se o schema não bater ou estiver sem chaves.
-      if (clientErr) throw clientErr;
+      if (clienteErr) {
+        console.error('Erro no upsert de cliente:', clienteErr);
+        console.error('Código:', clienteErr.code, '| Detalhes:', clienteErr.details);
+        throw clienteErr;
+      }
 
-      // 2. Inserir um agendamento fictício pro futuro para este cliente recém criado
-      const today = new Date();
-      today.setDate(today.getDate() + 2); // daqui a 2 dias
+      if (!cliente?.id) {
+        throw new Error('Banco não retornou o ID do cliente após upsert');
+      }
 
-      await supabase
-        .from('appointments')
-        .insert([{
-          client_id: clientData.id,
-          appointment_date: today.toISOString().split('T')[0],
-          start_time: '14:30',
-          status: 'scheduled'
-        }]);
+      const clienteAgendamentoData = {
+        id: cliente.id,
+        nome: cliente.full_name,
+        telefone: cliente.phone,
+        cpf: cpfLimpo,
+        isExistente: false,
+        sessoesPacote: null
+      };
+
+      localStorage.setItem('cliente_agendamento', JSON.stringify(clienteAgendamentoData));
+      
+      // Navegar SOMENTE após confirmação do banco
+      navigate('/agendar/horario');
 
     } catch (err) {
-      console.warn('Backend Supabase falhou ou não configurado. Navegando via MockFlow.', err.message);
-    } finally {
+      console.error('Erro completo ao processar cliente:', err);
+      
+      let msg = 'Erro ao processar seus dados. Tente novamente.';
+      if (err.code === '23505') msg = 'CPF já cadastrado. Recarregue a página e tente novamente.';
+      else if (err.code === '42501') msg = 'Sem permissão para cadastrar. Entre em contato com o suporte.';
+      else if (err.message) msg = `Erro: ${err.message}`;
+      
+      alert(msg);
       setLoading(false);
-      navigate('/agendar/confirmado');
     }
   };
 
@@ -82,6 +262,31 @@ export default function AgendamentoDados() {
         <p className="font-body text-[#4A3728]/80 text-lg max-w-lg leading-relaxed">
           Por favor, preencha os campos abaixo com suas informações pessoais para garantirmos o melhor atendimento.
         </p>
+        
+        {/* Mostrar item selecionado (pacote ou serviço) */}
+        {itemSelecionado && (
+          <div className="mt-8 p-6 bg-[#F8F6F4] rounded-2xl border border-[#775841]/10">
+            <div className="flex items-center gap-4">
+              <span className="material-symbols-outlined text-[#775841]">
+                {itemSelecionado.tipo === 'pacote' ? 'package_2' : 'spa'}
+              </span>
+              <div>
+                <p className="font-label text-[10px] tracking-[0.2em] uppercase text-[#4A3728]/60">
+                  {itemSelecionado.tipo === 'pacote' ? 'Pacote Selecionado' : 'Serviço Selecionado'}
+                </p>
+                <p className="serif-regular text-[#4A3728] text-lg">
+                  {itemSelecionado.procedimento || itemSelecionado.nome}
+                </p>
+                <p className="font-body text-[#4A3728]/70 text-sm">
+                  {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(
+                    itemSelecionado.valor_total || itemSelecionado.preco || 0
+                  )}
+                  {itemSelecionado.tipo === 'pacote' && ' • 6 Sessões'}
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Form Layout: Asymmetrical & Spaced */}
@@ -137,45 +342,91 @@ export default function AgendamentoDados() {
 
           {/* CPF */}
           <div className="relative group">
-            <label htmlFor="cpf" className="block font-label text-[10px] tracking-[0.2em] uppercase text-[#4A3728]/60 mb-2">CPF</label>
+            <label htmlFor="cpf" className="block font-label text-[10px] tracking-[0.2em] uppercase text-[#4A3728]/60 mb-2">
+              CPF *
+              {cpfLoading && (
+                <span className="ml-2 material-symbols-outlined animate-spin text-sm">refresh</span>
+              )}
+            </label>
             <input
               type="text"
               id="cpf"
               name="cpf"
+              required
               value={formData.cpf}
               onChange={handleChange}
               placeholder="000.000.000-00"
               className="w-full bg-transparent border-t-0 border-x-0 border-b border-[#d3c3ba]/30 focus:ring-0 focus:border-[#4A3728] py-3 transition-all placeholder:text-[#d3c3ba]/50 serif-regular text-xl text-[#4A3728] outline-none"
             />
+            
+            {/* Status do cliente */}
+            {clienteExistente && (
+              <div className="mt-3 p-4 bg-green-50 border border-green-200 rounded-lg">
+                <div className="flex items-center gap-2">
+                  <span className="material-symbols-outlined text-green-600 text-sm">check_circle</span>
+                  <div>
+                    <p className="text-green-800 text-sm font-medium">
+                      Olá, {clienteExistente.full_name}! Que bom ter você de volta!
+                    </p>
+                    <p className="text-green-600 text-xs mt-1 flex items-center gap-1">
+                      <span className="material-symbols-outlined animate-spin text-xs">refresh</span>
+                      Redirecionando para escolha de horário...
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
+            
+            {formData.cpf && !cpfLoading && !clienteExistente && formData.cpf.replace(/\D/g, '').length === 11 && (
+              <div className="mt-3 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                <div className="flex items-center gap-2">
+                  <span className="material-symbols-outlined text-blue-600 text-sm">person_add</span>
+                  <p className="text-blue-800 text-sm">
+                    Novo cliente! Preencha seus dados abaixo.
+                  </p>
+                </div>
+              </div>
+            )}
           </div>
         </div>
 
         {/* Summary & Footer Action */}
         <div className="md:col-span-12 mt-12 pt-12 border-t border-[#d3c3ba]/10 flex flex-col md:flex-row items-center justify-between gap-8">
-          <div className="flex items-center gap-6">
-            <div className="w-16 h-16 rounded-full overflow-hidden grayscale hover:grayscale-0 transition-all duration-700">
-              <img
-                src="https://lh3.googleusercontent.com/aida-public/AB6AXuBTAQQhuOt1vpvIMbtWmUU9tyCzerHYFYIXq8cq0L_txvVfXXkb-H257DZ7TWsYCP69J8N7Y80S0KhHVo_AZzsHdTQf0I-pxfTK9EbUxXP2jUBlitkRr4QNJKi8WNfm8MK3Gndi1gymoKcYyHi_9lUtk41-QWKY8UwK1DigH5AT_4X1Qz82OZ4fqAfaWiWyy3_t4GoCV1vE3tSK9hjUFhClVwKEscEn6OcipvmJ3zvD0qBeRz6aCXPYyXYrx_jaoxOTepQeS_5KIZI"
-                alt="Clinic Environment"
-                className="w-full h-full object-cover"
-              />
+          <div className="flex items-center gap-4 py-2">
+              <span className="material-symbols-outlined text-[#4A3728]/60">
+                {itemSelecionado?.tipo === 'pacote' ? 'calendar_today' : 'spa'}
+              </span>
+              <div className="text-left">
+                <p className="font-label text-[10px] tracking-[0.2em] uppercase text-[#82756d]/70">Resumo da sessão</p>
+                <p className="serif-regular text-[#4A3728]">
+                  {itemSelecionado
+                    ? `${itemSelecionado.procedimento || itemSelecionado.nome}${itemSelecionado.tipo === 'pacote' ? ' • Pacote 6 Sessões' : ' • Avulso'}`
+                    : 'Procedimento Selecionado'}
+                </p>
+                {clienteExistente && sessoesPacote > 0 && (
+                  <p className="text-sm text-green-600 mt-1">
+                    {sessoesPacote} sessões disponíveis
+                  </p>
+                )}
+              </div>
             </div>
-            <div>
-              <p className="font-label text-[10px] tracking-[0.2em] uppercase text-[#4A3728]/60">Resumo da sessão</p>
-              <p className="serif-regular text-[#4A3728]">Limpeza de Pele Diamond • 14:30 • {new Date().toLocaleDateString()}</p>
-            </div>
-          </div>
 
           <button
             type="submit"
-            disabled={loading}
-            className={`group relative px-12 py-5 bg-[#4A3728] text-[#FDFCFB] rounded-full overflow-hidden transition-all duration-500 flex items-center gap-4 ${loading ? 'opacity-50 cursor-not-allowed' : 'hover:scale-[1.02] active:scale-95'}`}
+            disabled={loading || !formData.cpf || formData.cpf.replace(/\D/g, '').length !== 11}
+            className={`group relative px-12 py-5 bg-[#4A3728] text-[#FDFCFB] rounded-full overflow-hidden transition-all duration-500 flex items-center gap-4 ${
+              loading || !formData.cpf || formData.cpf.replace(/\D/g, '').length !== 11
+                ? 'opacity-50 cursor-not-allowed' 
+                : 'hover:scale-[1.02] active:scale-95'
+            }`}
           >
             {loading ? (
               <span className="material-symbols-outlined animate-spin text-sm">refresh</span>
             ) : (
               <>
-                <span className="font-label text-[11px] tracking-[0.3em] uppercase font-bold">Confirmar Agendamento</span>
+                <span className="font-label text-[11px] tracking-[0.3em] uppercase font-bold">
+                  {clienteExistente ? 'Continuar' : 'Criar Conta e Continuar'}
+                </span>
                 <span className="material-symbols-outlined text-sm">arrow_forward</span>
               </>
             )}

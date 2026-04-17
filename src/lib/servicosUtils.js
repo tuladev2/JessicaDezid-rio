@@ -129,9 +129,14 @@ export const validateServicoForm = (formData) => {
 
   // URL da imagem (opcional, mas se informada deve ser válida)
   if (formData.image_url && formData.image_url.trim()) {
-    const urlPattern = /^https?:\/\/.+\.(jpg|jpeg|png|gif|webp)(\?.*)?$/i;
-    if (!urlPattern.test(formData.image_url.trim())) {
-      errors.image_url = 'URL da imagem deve ser válida e apontar para uma imagem (jpg, png, gif, webp)';
+    try {
+      new URL(formData.image_url.trim());
+      // URL válida — aceitar qualquer URL https (Supabase Storage, CDNs, etc.)
+      if (!formData.image_url.trim().startsWith('http')) {
+        errors.image_url = 'URL da imagem deve começar com http:// ou https://';
+      }
+    } catch {
+      errors.image_url = 'URL da imagem inválida';
     }
   }
 

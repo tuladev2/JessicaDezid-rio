@@ -1,7 +1,8 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import Modal from './Modal';
 import Input from './ui/Input';
 import Select from './ui/Select';
+import { supabase } from '../lib/supabase';
 import { 
   CATEGORIAS_SERVICOS, 
   validateServicoForm, 
@@ -13,7 +14,7 @@ import {
 
 /**
  * Modal para criação e edição de serviços
- * Inclui validação em tempo real e preview de imagem
+ * Inclui upload de imagem para Supabase Storage + preview
  */
 export default function ServicoModal({ 
   isOpen, 
@@ -22,6 +23,8 @@ export default function ServicoModal({
   editingServico = null, 
   loading = false 
 }) {
+  const fileInputRef = useRef(null);
+
   // Estado do formulário
   const [formData, setFormData] = useState({
     name: '',
@@ -33,12 +36,16 @@ export default function ServicoModal({
     image_url: ''
   });
 
+  // Estado de upload
+  const [uploadLoading, setUploadLoading] = useState(false);
+  const [uploadError, setUploadError] = useState(null);
+  const [imagePreview, setImagePreview] = useState(null); // URL local para preview imediato
+
   // Estado de validação
   const [errors, setErrors] = useState({});
   const [touched, setTouched] = useState({});
   const [imagePreviewError, setImagePreviewError] = useState(false);
 
-  // Determinar se é edição ou criação
   const isEditing = !!editingServico;
   const modalTitle = isEditing ? 'Editar Serviço' : 'Novo Serviço';
 
@@ -55,8 +62,8 @@ export default function ServicoModal({
           price_package: editingServico.price_package?.toString() || '',
           image_url: editingServico.image_url || ''
         });
+        setImagePreview(editingServico.image_url || null);
       } else {
-        // Reset para novo serviço
         setFormData({
           name: '',
           description: '',
@@ -66,10 +73,12 @@ export default function ServicoModal({
           price_package: '',
           image_url: ''
         });
+        setImagePreview(null);
       }
       setErrors({});
       setTouched({});
       setImagePreviewError(false);
+      setUploadError(null);
     }
   }, [isOpen, editingServico]);
 
@@ -98,6 +107,65 @@ export default function ServicoModal({
   const handleImageUrlChange = (e) => {
     handleInputChange('image_url', e.target.value);
     setImagePreviewError(false);
+    setImagePreview(e.target.value || null);
+  };
+
+  // Handler de upload para Supabase Storage
+  const handleImageUpload = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    // Validar tipo
+    if (!file.type.startsWith('image/')) {
+      setUploadError('Apenas imagens são permitidas (JPG, PNG, WebP).');
+      return;
+    }
+
+    // Validar tamanho (máx 5MB)
+    if (file.size > 5 * 1024 * 1024) {
+      setUploadError('Imagem muito grande. Máximo permitido: 5MB.');
+      return;
+    }
+
+    setUploadLoading(true);
+    setUploadError(null);
+
+    // Preview local imediato enquanto faz upload
+    const localUrl = URL.createObjectURL(file);
+    setImagePreview(localUrl);
+
+    try {
+      // Nome único para evitar colisão: timestamp + nome original sanitizado
+      const ext = file.name.split('.').pop();
+      const fileName = `servico_${Date.now()}.${ext}`;
+
+      const { error: uploadErr } = await supabase.storage
+        .from('imagens-servicos')
+        .upload(fileName, file, { upsert: true, contentType: file.type });
+
+      if (uploadErr) throw uploadErr;
+
+      // Obter URL pública
+      const { data: urlData } = supabase.storage
+        .from('imagens-servicos')
+        .getPublicUrl(fileName);
+
+      const publicUrl = urlData.publicUrl;
+
+      // Salvar URL pública no formData
+      setFormData(prev => ({ ...prev, image_url: publicUrl }));
+      setImagePreview(publicUrl);
+      setImagePreviewError(false);
+
+    } catch (err) {
+      console.error('Erro no upload da imagem:', err);
+      setUploadError(`Erro ao enviar imagem: ${err.message}`);
+      setImagePreview(formData.image_url || null); // reverter preview
+    } finally {
+      setUploadLoading(false);
+      // Limpar input para permitir re-upload do mesmo arquivo
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
   };
 
   // Handler para preços com formatação
@@ -128,27 +196,31 @@ export default function ServicoModal({
     
     // Validar formulário completo
     const validation = validateServicoForm(formData);
-    setErrors(validation.errors);
+    
+    // Filtrar apenas erros reais (não nulos)
+    const realErrors = Object.fromEntries(
+      Object.entries(validation.errors).filter(([, v]) => v !== null && v !== undefined && v !== '')
+    );
+
+    console.log('[ServicoModal] Submit — formData:', formData);
+    console.log('[ServicoModal] Erros de validação:', realErrors);
+    console.log('[ServicoModal] Formulário válido:', validation.isValid);
+
+    setErrors(realErrors);
     
     if (!validation.isValid) {
-      // Focar no primeiro campo com erro
-      const firstErrorField = Object.keys(validation.errors)[0];
+      const firstErrorField = Object.keys(realErrors)[0];
       const firstErrorElement = document.getElementById(firstErrorField);
-      if (firstErrorElement) {
-        firstErrorElement.focus();
-      }
+      if (firstErrorElement) firstErrorElement.focus();
       return;
     }
     
     try {
-      // Sanitizar dados antes do envio
       const sanitizedData = sanitizeServicoData(formData);
+      console.log('[ServicoModal] Dados sanitizados para envio:', sanitizedData);
       await onSubmit(sanitizedData);
-      
-      // Modal será fechado pelo componente pai após sucesso
     } catch (error) {
-      // Erro será tratado pelo componente pai
-      console.error('Erro ao submeter formulário:', error);
+      console.error('[ServicoModal] Erro ao submeter:', error);
     }
   };
 
@@ -170,8 +242,9 @@ export default function ServicoModal({
     formData.image_url !== (editingServico.image_url || '')
   ) : true;
 
-  // Verificar se pode submeter
-  const canSubmit = !loading && hasChanges && Object.keys(errors).length === 0;
+  // Verificar se pode submeter — filtrar erros null (campos válidos que já foram tocados)
+  const activeErrors = Object.values(errors).filter(v => v !== null && v !== undefined && v !== '');
+  const canSubmit = !loading && !uploadLoading && hasChanges && activeErrors.length === 0;
 
   return (
     <Modal
@@ -319,41 +392,80 @@ export default function ServicoModal({
               </div>
             )}
 
-            {/* URL da Imagem */}
-            <Input
-              id="image_url"
-              label="URL da Imagem (opcional)"
-              type="url"
-              value={formData.image_url}
-              onChange={handleImageUrlChange}
-              error={touched.image_url ? errors.image_url : null}
-              placeholder="https://exemplo.com/imagem.jpg"
-              icon="image"
-            />
+            {/* Upload / URL da Imagem */}
+            <div>
+              <label className="block text-sm font-medium text-secondary mb-2">
+                Imagem do Serviço (opcional)
+              </label>
 
-            {/* Preview da Imagem */}
-            {formData.image_url && !errors.image_url && (
-              <div className="bg-surface-container/30 rounded-xl p-4">
-                <h5 className="text-sm font-medium text-on-surface mb-2">Preview da Imagem:</h5>
-                <div className="w-full h-32 rounded-lg overflow-hidden bg-surface-container">
-                  {!imagePreviewError ? (
+              {/* Área de upload por clique */}
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={handleImageUpload}
+              />
+
+              <div
+                onClick={() => !uploadLoading && fileInputRef.current?.click()}
+                className={`relative w-full h-36 rounded-xl border-2 border-dashed transition-colors cursor-pointer flex flex-col items-center justify-center gap-2 overflow-hidden
+                  ${uploadLoading
+                    ? 'border-primary/40 bg-primary/5 cursor-wait'
+                    : 'border-outline-variant hover:border-primary hover:bg-primary/5'
+                  }`}
+              >
+                {imagePreview && !imagePreviewError ? (
+                  <>
                     <img
-                      src={formData.image_url}
-                      alt="Preview do serviço"
-                      className="w-full h-full object-cover"
+                      src={imagePreview}
+                      alt="Preview"
+                      className="absolute inset-0 w-full h-full object-cover rounded-xl"
                       onError={() => setImagePreviewError(true)}
                     />
-                  ) : (
-                    <div className="w-full h-full flex items-center justify-center text-outline">
-                      <div className="text-center">
-                        <span className="material-symbols-outlined text-2xl mb-1 block">broken_image</span>
-                        <p className="text-xs">Erro ao carregar imagem</p>
-                      </div>
+                    <div className="absolute inset-0 bg-black/40 flex flex-col items-center justify-center opacity-0 hover:opacity-100 transition-opacity rounded-xl">
+                      <span className="material-symbols-outlined text-white text-2xl">edit</span>
+                      <p className="text-white text-xs mt-1">Trocar imagem</p>
                     </div>
-                  )}
-                </div>
+                  </>
+                ) : uploadLoading ? (
+                  <>
+                    <span className="material-symbols-outlined animate-spin text-primary text-2xl">sync</span>
+                    <p className="text-xs text-primary">Enviando imagem...</p>
+                  </>
+                ) : (
+                  <>
+                    <span className="material-symbols-outlined text-outline text-2xl">cloud_upload</span>
+                    <p className="text-xs text-secondary text-center px-4">
+                      Clique para fazer upload<br/>
+                      <span className="text-outline">JPG, PNG ou WebP · máx. 5MB</span>
+                    </p>
+                  </>
+                )}
               </div>
-            )}
+
+              {/* Erro de upload */}
+              {uploadError && (
+                <p className="mt-2 text-xs text-error flex items-center gap-1">
+                  <span className="material-symbols-outlined text-xs">error</span>
+                  {uploadError}
+                </p>
+              )}
+
+              {/* Campo de URL manual como alternativa */}
+              <div className="mt-3">
+                <Input
+                  id="image_url"
+                  label="Ou cole uma URL de imagem"
+                  type="url"
+                  value={formData.image_url}
+                  onChange={handleImageUrlChange}
+                  error={touched.image_url ? errors.image_url : null}
+                  placeholder="https://exemplo.com/imagem.jpg"
+                  icon="link"
+                />
+              </div>
+            </div>
           </div>
         </div>
 
@@ -377,12 +489,12 @@ export default function ServicoModal({
             <button
               type="submit"
               disabled={!canSubmit}
-              className="px-6 py-2 text-sm font-medium bg-primary text-on-primary rounded-xl hover:bg-primary/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+              className="relative z-10 px-6 py-2 text-sm font-medium bg-primary text-on-primary rounded-xl hover:bg-primary/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
             >
-              {loading && (
+              {(loading || uploadLoading) && (
                 <span className="material-symbols-outlined animate-spin text-sm">sync</span>
               )}
-              {isEditing ? 'Salvar Alterações' : 'Criar Serviço'}
+              {uploadLoading ? 'Aguardando upload...' : isEditing ? 'Salvar Alterações' : 'Criar Serviço'}
             </button>
           </div>
         </div>

@@ -59,6 +59,8 @@ export default function Agendas() {
   const [notification, setNotification] = useState(null);
   const [isMobile, setIsMobile] = useState(false);
   const [selectedDay, setSelectedDay] = useState(0); // Para mobile
+  const [selectedAppointment, setSelectedAppointment] = useState(null);
+  const [detailsModalOpen, setDetailsModalOpen] = useState(false);
   const [roomCapacity, setRoomCapacity] = useState({
     sala01: { current: 0, max: 8 },
     sala02: { current: 0, max: 8 },
@@ -91,51 +93,62 @@ export default function Agendas() {
       const endDate = weekDates[6].toISOString().split('T')[0];
 
       const { data, error } = await supabase
-        .from('appointments')
+        .from('agendamentos')
         .select(`
           *,
-          clients(full_name, avatar_url),
-          services(name, duration_minutes, category)
+          clients(full_name, phone, cpf),
+          planos_pacotes(nome_pacote, procedimento)
         `)
-        .gte('appointment_date', startDate)
-        .lte('appointment_date', endDate)
-        .eq('status', 'confirmed')
-        .order('appointment_date', { ascending: true })
-        .order('start_time', { ascending: true });
+        .gte('data', startDate)
+        .lte('data', endDate)
+        .eq('status', 'Confirmado')
+        .order('data', { ascending: true })
+        .order('horario_inicio', { ascending: true });
 
       if (error) throw error;
 
       const formatted = (data || []).map(apt => {
-        const aptDate = new Date(apt.appointment_date);
+        const aptDate = new Date(apt.data + 'T00:00:00');
         const dayIndex = aptDate.getDay() === 0 ? 6 : aptDate.getDay() - 1; // Segunda = 0
+        
+        // Calcular altura baseada no tempo entre início e fim
+        const [startH, startM] = apt.horario_inicio.split(':').map(Number);
+        const [endH, endM] = apt.horario_fim.split(':').map(Number);
+        const durationMinutes = (endH * 60 + endM) - (startH * 60 + startM);
         
         return {
           id: apt.id,
           name: apt.clients?.full_name || 'Cliente',
-          procedure: apt.services?.name || 'Procedimento',
-          time: `${apt.start_time.substring(0, 5)} - ${apt.end_time?.substring(0, 5) || ''}`,
+          procedure: apt.planos_pacotes?.procedimento || 'Procedimento',
+          time: `${apt.horario_inicio} - ${apt.horario_fim}`,
           day: dayIndex,
-          top: timeToPixels(apt.start_time),
-          height: Math.max(40, (apt.services?.duration_minutes || 60)),
+          top: timeToPixels(apt.horario_inicio),
+          height: Math.max(40, durationMinutes),
           borderColor: 'border-primary',
-          avatar: apt.clients?.avatar_url,
+          avatar: null,
           status: apt.status,
-          room: apt.room || 'sala01'
+          room: 'sala01',
+          phone: apt.clients?.phone,
+          cpf: apt.clients?.cpf,
+          valor: apt.valor,
+          cliente_id: apt.cliente_id,
+          agendamento_id: apt.id
         };
       });
 
       setAppointments(formatted);
       
-      // Calcular capacidade das salas
-      const roomCounts = formatted.reduce((acc, apt) => {
-        acc[apt.room] = (acc[apt.room] || 0) + 1;
-        return acc;
-      }, {});
+      // Calcular capacidade das salas (baseado em agendamentos simultâneos)
+      const roomCounts = {};
+      formatted.forEach(apt => {
+        const timeSlot = `${apt.day}-${apt.time.split(' - ')[0]}`;
+        roomCounts[timeSlot] = (roomCounts[timeSlot] || 0) + 1;
+      });
 
       setRoomCapacity({
-        sala01: { current: roomCounts.sala01 || 0, max: 8 },
-        sala02: { current: roomCounts.sala02 || 0, max: 8 },
-        sala03: { current: roomCounts.sala03 || 0, max: 8 }
+        sala01: { current: Math.min(Object.values(roomCounts).reduce((a, b) => Math.max(a, b), 0), 8), max: 8 },
+        sala02: { current: 0, max: 8 },
+        sala03: { current: 0, max: 8 }
       });
 
     } catch (err) {
@@ -165,17 +178,39 @@ export default function Agendas() {
   const handleStartAttendance = async (appointmentId) => {
     try {
       const { error } = await supabase
-        .from('appointments')
-        .update({ status: 'in_progress' })
+        .from('agendamentos')
+        .update({ status: 'Realizado' })
         .eq('id', appointmentId);
 
       if (error) throw error;
       
-      showNotification('Atendimento iniciado com sucesso!', 'success');
+      showNotification('Atendimento marcado como realizado!', 'success');
+      setDetailsModalOpen(false);
       fetchAppointments(); // Recarregar dados
     } catch (err) {
-      console.error('Erro ao iniciar atendimento:', err);
-      showNotification('Erro ao iniciar atendimento', 'error');
+      console.error('Erro ao atualizar agendamento:', err);
+      showNotification('Erro ao atualizar agendamento', 'error');
+    }
+  };
+
+  // Cancelar agendamento
+  const handleCancelAppointment = async (appointmentId) => {
+    if (!window.confirm('Tem certeza que deseja cancelar este agendamento?')) return;
+
+    try {
+      const { error } = await supabase
+        .from('agendamentos')
+        .update({ status: 'Cancelado' })
+        .eq('id', appointmentId);
+
+      if (error) throw error;
+      
+      showNotification('Agendamento cancelado com sucesso!', 'success');
+      setDetailsModalOpen(false);
+      fetchAppointments(); // Recarregar dados
+    } catch (err) {
+      console.error('Erro ao cancelar agendamento:', err);
+      showNotification('Erro ao cancelar agendamento', 'error');
     }
   };
 
@@ -311,7 +346,10 @@ export default function Agendas() {
                   <div
                     key={apt.id}
                     className="flex items-center gap-4 p-4 bg-primary/5 border-l-4 border-primary rounded-xl hover:bg-primary/10 transition-colors cursor-pointer"
-                    onClick={() => console.log('Detalhes do agendamento:', apt.id)}
+                    onClick={() => {
+                      setSelectedAppointment(apt);
+                      setDetailsModalOpen(true);
+                    }}
                   >
                     <div className="flex-shrink-0">
                       <img
@@ -373,7 +411,10 @@ export default function Agendas() {
                     width: `calc((100% - 80px) / 7 - 8px)`,
                     height: `${Math.max(40, apt.height)}px`,
                   }}
-                  onClick={() => console.log('Detalhes do agendamento:', apt.id)}
+                  onClick={() => {
+                    setSelectedAppointment(apt);
+                    setDetailsModalOpen(true);
+                  }}
                 >
                   <p className="text-[9px] text-primary font-semibold truncate bg-white/50 px-1 rounded-sm leading-tight">
                     {apt.name}
@@ -494,6 +535,109 @@ export default function Agendas() {
         prefilledDate={selectedDate}
         prefilledTime={selectedTime}
       />
+
+      {/* Modal de Detalhes do Agendamento */}
+      {detailsModalOpen && selectedAppointment && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-2xl p-8 w-full max-w-md editorial-shadow">
+            <div className="flex items-center justify-between mb-6">
+              <h3 className="font-serif text-xl text-on-surface">Detalhes do Agendamento</h3>
+              <button 
+                onClick={() => setDetailsModalOpen(false)}
+                className="text-secondary hover:text-on-surface transition-colors"
+              >
+                <span className="material-symbols-outlined">close</span>
+              </button>
+            </div>
+
+            <div className="space-y-6">
+              {/* Cliente */}
+              <div>
+                <p className="text-[10px] uppercase tracking-[0.2em] text-secondary mb-2 font-semibold">Cliente</p>
+                <p className="text-lg font-medium text-on-surface">{selectedAppointment.name}</p>
+              </div>
+
+              {/* Procedimento */}
+              <div>
+                <p className="text-[10px] uppercase tracking-[0.2em] text-secondary mb-2 font-semibold">Procedimento</p>
+                <p className="text-lg font-medium text-on-surface">{selectedAppointment.procedure}</p>
+              </div>
+
+              {/* Horário */}
+              <div>
+                <p className="text-[10px] uppercase tracking-[0.2em] text-secondary mb-2 font-semibold">Horário</p>
+                <p className="text-lg font-medium text-on-surface">{selectedAppointment.time}</p>
+              </div>
+
+              {/* Telefone */}
+              {selectedAppointment.phone && (
+                <div>
+                  <p className="text-[10px] uppercase tracking-[0.2em] text-secondary mb-2 font-semibold">Telefone</p>
+                  <p className="text-lg font-medium text-on-surface">{selectedAppointment.phone}</p>
+                </div>
+              )}
+
+              {/* CPF */}
+              {selectedAppointment.cpf && (
+                <div>
+                  <p className="text-[10px] uppercase tracking-[0.2em] text-secondary mb-2 font-semibold">CPF</p>
+                  <p className="text-lg font-medium text-on-surface">{selectedAppointment.cpf}</p>
+                </div>
+              )}
+
+              {/* Valor */}
+              {selectedAppointment.valor && (
+                <div>
+                  <p className="text-[10px] uppercase tracking-[0.2em] text-secondary mb-2 font-semibold">Valor</p>
+                  <p className="text-lg font-medium text-on-surface">
+                    {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(selectedAppointment.valor)}
+                  </p>
+                </div>
+              )}
+
+              {/* Status */}
+              <div>
+                <p className="text-[10px] uppercase tracking-[0.2em] text-secondary mb-2 font-semibold">Status</p>
+                <span className={`inline-block px-3 py-1 rounded-full text-xs font-medium ${
+                  selectedAppointment.status === 'Confirmado' 
+                    ? 'bg-green-100 text-green-800' 
+                    : selectedAppointment.status === 'Realizado'
+                    ? 'bg-blue-100 text-blue-800'
+                    : 'bg-red-100 text-red-800'
+                }`}>
+                  {selectedAppointment.status}
+                </span>
+              </div>
+            </div>
+
+            {/* Ações */}
+            <div className="mt-8 flex gap-3">
+              {selectedAppointment.status === 'Confirmado' && (
+                <>
+                  <button
+                    onClick={() => handleStartAttendance(selectedAppointment.agendamento_id)}
+                    className="flex-1 py-3 bg-green-600 text-white rounded-xl text-xs font-semibold tracking-wider uppercase hover:bg-green-700 transition-all"
+                  >
+                    Marcar como Realizado
+                  </button>
+                  <button
+                    onClick={() => handleCancelAppointment(selectedAppointment.agendamento_id)}
+                    className="flex-1 py-3 bg-red-600 text-white rounded-xl text-xs font-semibold tracking-wider uppercase hover:bg-red-700 transition-all"
+                  >
+                    Cancelar
+                  </button>
+                </>
+              )}
+              <button
+                onClick={() => setDetailsModalOpen(false)}
+                className="flex-1 py-3 bg-surface-container text-on-surface rounded-xl text-xs font-semibold tracking-wider uppercase hover:bg-surface-container-high transition-all"
+              >
+                Fechar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

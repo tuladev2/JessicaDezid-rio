@@ -1,60 +1,60 @@
 import { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
 
-const mockCards = [
-  {
-    title: 'Depilação a Led',
-    description: 'Tecnologia de ponta para uma remoção definitiva, indolor e extremamente segura para todos os tons de pele.',
-    image: 'https://lh3.googleusercontent.com/aida-public/AB6AXuDIWf7N7yUT-TgUMRCuV2jw8tkh-EfGuyJEXKCQW5yeWHN-8nGQOVGPmTVA_clFGJgYPflbLO8PV800iXDhTSqUrXjytYnMXoTM--g45uDRSvEuIfDZTbC1Wg-syyWxOD5k8oNWYOHHBKR06onSZH8Dfoxo5rBgIsxXDT26iFyfZxRsb9R6E2asASZDcGbsxdsqRjwLXOd_tv3t7eskBhgFDmgmUvlhJNnJH2VRit8wqqqOmlhrtuc9ZarCcHYfWYzOnKPcnR_3tTw',
-    offset: false,
-  },
-  {
-    title: 'Massagem Relaxante',
-    description: 'Um ritual de desaceleração que utiliza óleos essenciais e toques precisos para restaurar o seu equilíbrio.',
-    image: 'https://lh3.googleusercontent.com/aida-public/AB6AXuCdeqIhoE6iW7MbC1dwrnH5kA-UWxYouFZyEHKjOPz-rRreGnWI2hc3-NuioGY0qv2FLqermYvUyTks8Tcbv8r1IuDl4wt5es4AbUdQ94L4snZla42tONS3KX-WcxfY1bzK6Dqm7vPJjs60uD4zUp34j6KpXrjfRitJCbJR_2e_chJm-35cENu9MubDl4_odYtO4IOAcG8SOWHqxg99piqk9YJlwm9wB5rLhqSnXLCvx50cG-KZ7J7jO7IJz36R1UpT_WQbiBt9JiE',
-    offset: true,
-  },
-  {
-    title: 'Limpeza de Pele',
-    description: 'Renovação profunda com ativos de alta performance que devolvem o viço natural e a saúde da sua face.',
-    image: 'https://lh3.googleusercontent.com/aida-public/AB6AXuDSQ6ca2Ppwx9d-_pE3RGyTxykBfAWrInSYQEJw8dj5NebXS4RPNJo3TobxgBxk_BZfHvWMwEFjEGry2TKRl83v_REfnowat9ePUqKLsS0e1fohOAUOQUJa18R1OPc_Bo0MsUKKRYByhmlsFfIPG6KM6VPvTZ5YncFBzvklnFYCChAFfH-miVL9JQ_n7lm2uibkFEJtsd7MvlZLvPyNAh6yBXWixLla8i8-uMxQQ_I0Uq-gxrPjacqhQQPScaTGK-UZoXU5RV_wDgo',
-    offset: false,
-  },
-];
+// Placeholder visual puro CSS — sem fotos externas
+function ImagePlaceholder({ title }) {
+  return (
+    <div className="w-full h-full flex flex-col items-center justify-center gap-4 bg-gradient-to-b from-[#f0e9e5] to-[#e8ddd8]">
+      <span
+        className="material-symbols-outlined text-[#b8a99f]"
+        style={{ fontSize: '3rem', fontVariationSettings: '"wght" 100' }}
+      >
+        spa
+      </span>
+      <p className="font-label text-[10px] tracking-[0.2em] uppercase text-[#b8a99f] text-center px-4">
+        {title}
+      </p>
+    </div>
+  );
+}
 
 export default function AgendamentoServicos() {
+  const navigate = useNavigate();
   const [serviceCards, setServiceCards] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [fetchError, setFetchError] = useState(false);
 
   useEffect(() => {
     async function fetchServices() {
       try {
         setLoading(true);
-        // Fetch up to 3 active services for the showcase
+        setFetchError(false);
+
         const { data, error } = await supabase
           .from('services')
-          .select('*')
+          .select('id, name, description, image_url, price_single, price_package, is_active')
           .eq('is_active', true)
-          .limit(3);
+          .order('created_at', { ascending: true })
+          .limit(6);
 
         if (error) throw error;
 
-        if (data && data.length > 0) {
-          const formatted = data.map((item, index) => ({
-            id: item.id,
-            title: item.name,
-            description: item.description || 'Procedimento de luxo exclusivo da clínica Jessica Dezidério.',
-            image: item.image_url || mockCards[index % mockCards.length].image,
-            offset: index % 2 !== 0,
-          }));
-          setServiceCards(formatted);
-        } else {
-          setServiceCards(mockCards); // Fallback if no DB data
-        }
+        const formatted = (data || []).map((item, index) => ({
+          id: item.id,
+          title: item.name,
+          description: item.description || '',
+          image_url: item.image_url || null,
+          offset: index % 2 !== 0,
+          price_single: item.price_single,
+          price_package: item.price_package,
+        }));
+
+        setServiceCards(formatted);
       } catch (err) {
-        console.warn('Fallback to mockCards due to Supabase error:', err.message);
-        setServiceCards(mockCards);
+        console.error('[AgendamentoServicos] Erro ao buscar serviços:', err.message);
+        setFetchError(true);
+        setServiceCards([]);
       } finally {
         setLoading(false);
       }
@@ -63,62 +63,146 @@ export default function AgendamentoServicos() {
     fetchServices();
   }, []);
 
+  const handleSelecionarServico = (servico) => {
+    localStorage.removeItem('cliente_agendamento');
+    localStorage.removeItem('pacote_selecionado');
+
+    const servicoData = {
+      id: servico.id,
+      nome: servico.title,
+      preco: servico.price_single || 0,
+      tipo: 'servico_avulso',
+      isMock: false
+    };
+
+    console.log('[Agendamento] Serviço selecionado:', servicoData);
+    localStorage.setItem('servico_selecionado', JSON.stringify(servicoData));
+    navigate('/agendar/dados?origem=servico');
+  };
+
   return (
     <main className="pt-40 pb-24 px-6 md:px-12 max-w-5xl mx-auto min-h-screen">
-      {/* Header Section */}
+      {/* Header */}
       <section className="text-center mb-20">
-        <span className="font-label tracking-[0.3em] text-[10px] uppercase text-[#4A3728] mb-4 block">Passo 01 — Seleção</span>
-        <h1 className="font-headline italic text-4xl md:text-5xl lg:text-6xl text-[#4A3728] mb-6">Escolha o seu cuidado</h1>
+        <span className="font-label tracking-[0.3em] text-[10px] uppercase text-[#4A3728] mb-4 block">
+          Passo 01 — Seleção
+        </span>
+        <h1 className="font-headline italic text-4xl md:text-5xl lg:text-6xl text-[#4A3728] mb-6">
+          Escolha o seu cuidado
+        </h1>
         <div className="w-12 h-[1px] bg-[#d3c3ba]/30 mx-auto"></div>
       </section>
 
-      {/* Services Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-10 md:gap-14 items-start relative">
-        {loading && (
-          <div className="absolute inset-0 flex justify-center items-start pt-20 z-10 bg-background/50 backdrop-blur-sm">
-            <span className="material-symbols-outlined animate-spin text-4xl text-[#4A3728]/50">refresh</span>
-          </div>
-        )}
-        
-        {serviceCards.map((card, i) => (
-          <Link
-            key={card.id || i}
-            to="/agendar/horario"
-            className={`group cursor-pointer ${card.offset ? 'md:mt-12' : ''}`}
+      {/* Loading */}
+      {loading && (
+        <div className="flex justify-center items-center py-32">
+          <span className="material-symbols-outlined animate-spin text-4xl text-[#4A3728]/40">refresh</span>
+        </div>
+      )}
+
+      {/* Erro de conexão */}
+      {!loading && fetchError && (
+        <div className="text-center py-24">
+          <span className="material-symbols-outlined text-4xl text-[#d3c3ba] mb-4 block">wifi_off</span>
+          <p className="font-body text-[#4A3728]/60 text-sm">
+            Não foi possível carregar os serviços. Tente novamente.
+          </p>
+          <button
+            onClick={() => window.location.reload()}
+            className="mt-6 font-label tracking-widest text-[10px] uppercase text-[#4A3728] border-b border-[#4A3728]/20 hover:border-[#4A3728] transition-all"
           >
-            <div className="aspect-[4/5] overflow-hidden rounded-3 mb-6 bg-[#faf2ee] transition-transform duration-700 group-hover:scale-[1.02]">
-              <img
-                alt={card.title}
-                className="w-full h-full object-cover"
-                src={card.image}
-              />
+            Recarregar
+          </button>
+        </div>
+      )}
+
+      {/* Estado vazio — nenhum serviço cadastrado */}
+      {!loading && !fetchError && serviceCards.length === 0 && (
+        <div className="text-center py-24">
+          <div className="w-20 h-20 rounded-full bg-[#faf2ee] flex items-center justify-center mx-auto mb-8">
+            <span
+              className="material-symbols-outlined text-[#c8b8b0]"
+              style={{ fontSize: '2.5rem', fontVariationSettings: '"wght" 100' }}
+            >
+              spa
+            </span>
+          </div>
+          <h2 className="font-headline italic text-2xl text-[#4A3728] mb-3">
+            Em breve
+          </h2>
+          <p className="font-body text-sm text-[#4A3728]/60 max-w-sm mx-auto leading-relaxed">
+            Nossos serviços estão sendo preparados com muito cuidado.
+            Em breve você poderá escolher e agendar.
+          </p>
+        </div>
+      )}
+
+      {/* Grid de serviços */}
+      {!loading && !fetchError && serviceCards.length > 0 && (
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-10 md:gap-14 items-start">
+          {serviceCards.map((card, i) => (
+            <div
+              key={card.id}
+              onClick={() => handleSelecionarServico(card)}
+              className={`group cursor-pointer ${card.offset ? 'md:mt-12' : ''}`}
+            >
+              {/* Imagem ou placeholder visual */}
+              <div className="aspect-[4/5] overflow-hidden rounded-3 mb-6 bg-[#faf2ee] transition-transform duration-700 group-hover:scale-[1.02]">
+                {card.image_url ? (
+                  <img
+                    alt={card.title}
+                    className="w-full h-full object-cover"
+                    src={card.image_url}
+                    onError={(e) => {
+                      // Se imagem quebrar, esconde e mostra placeholder via estado
+                      e.target.style.display = 'none';
+                      e.target.nextSibling?.style && (e.target.nextSibling.style.display = 'flex');
+                    }}
+                  />
+                ) : (
+                  <ImagePlaceholder title={card.title} />
+                )}
+              </div>
+
+              <h3 className="font-headline italic text-2xl text-[#4A3728] mb-3">{card.title}</h3>
+
+              {card.description && (
+                <p className="font-body text-sm text-[#4f453e] leading-relaxed opacity-80 mb-6 min-h-[60px]">
+                  {card.description}
+                </p>
+              )}
+
+              {card.price_single > 0 && (
+                <p className="font-body text-sm text-[#775841] mb-4">
+                  {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(card.price_single)}
+                </p>
+              )}
+
+              <span className="font-label tracking-widest text-[10px] uppercase text-[#4A3728] border-b border-[#4A3728]/20 group-hover:border-[#4A3728]/60 transition-all">
+                Selecionar
+              </span>
             </div>
-            <h3 className="font-headline italic text-2xl text-[#4A3728] mb-3">{card.title}</h3>
-            <p className="font-body text-sm text-[#4f453e] leading-relaxed opacity-80 mb-6 min-h-[60px]">
-              {card.description}
-            </p>
-            <span className="font-label tracking-widest text-[10px] uppercase text-[#4A3728] border-b border-[#4A3728]/20 group-hover:border-[#4A3728]/60 transition-all">
-              Selecionar
+          ))}
+        </div>
+      )}
+
+      {/* CTA Pacotes */}
+      {!loading && (
+        <div className="mt-32 text-center">
+          <Link
+            to="/tratamentos"
+            className="group relative inline-block px-12 py-6 rounded-full border-2 border-dashed border-[#4A3728]/30 hover:border-[#4A3728] transition-all duration-500 overflow-hidden"
+          >
+            <div className="absolute inset-0 bg-[#4A3728]/5 opacity-0 group-hover:opacity-100 transition-opacity"></div>
+            <span className="relative font-label tracking-[0.2em] text-[11px] uppercase text-[#4A3728] font-bold">
+              Ver Todos os Pacotes de 6 Sessões
             </span>
           </Link>
-        ))}
-      </div>
-
-      {/* Packages CTA */}
-      <div className="mt-32 text-center">
-        <Link
-          to="/tratamentos"
-          className="group relative inline-block px-12 py-6 rounded-full border-2 border-dashed border-[#4A3728]/30 hover:border-[#4A3728] transition-all duration-500 overflow-hidden"
-        >
-          <div className="absolute inset-0 bg-[#4A3728]/5 opacity-0 group-hover:opacity-100 transition-opacity"></div>
-          <span className="relative font-label tracking-[0.2em] text-[11px] uppercase text-[#4A3728] font-bold">
-            Ver Todos os Pacotes de 6 Sessões
-          </span>
-        </Link>
-        <p className="mt-8 font-body text-[11px] text-[#4A3728] tracking-widest uppercase opacity-60">
-          Resultados duradouros requerem constância.
-        </p>
-      </div>
+          <p className="mt-8 font-body text-[11px] text-[#4A3728] tracking-widest uppercase opacity-60">
+            Resultados duradouros requerem constância.
+          </p>
+        </div>
+      )}
     </main>
   );
 }

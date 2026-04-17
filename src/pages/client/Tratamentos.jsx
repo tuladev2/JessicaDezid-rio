@@ -1,47 +1,50 @@
 import { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
 
 const fallbackTreatments = [
-  { area: 'Buço ou Queixo', avulso: 'R$ 80,00', pacote: 'R$ 390,00' },
-  { area: 'Axilas', avulso: 'R$ 120,00', pacote: 'R$ 540,00' },
-  { area: 'Virilha Completa', avulso: 'R$ 220,00', pacote: 'R$ 990,00' },
-  { area: 'Meia Perna', avulso: 'R$ 280,00', pacote: 'R$ 1.250,00' },
-  { area: 'Perna Inteira', avulso: 'R$ 450,00', pacote: 'R$ 1.980,00' },
-  { area: 'Rosto Feminino', avulso: 'R$ 180,00', pacote: 'R$ 780,00' },
+  { id: '1', procedimento: 'Buço ou Queixo', valor_unitario: 80.00, valor_total: 408.00 },
+  { id: '2', procedimento: 'Axilas', valor_unitario: 120.00, valor_total: 612.00 },
+  { id: '3', procedimento: 'Virilha Completa', valor_unitario: 220.00, valor_total: 1122.00 },
+  { id: '4', procedimento: 'Meia Perna', valor_unitario: 280.00, valor_total: 1428.00 },
+  { id: '5', procedimento: 'Perna Inteira', valor_unitario: 450.00, valor_total: 2295.00 },
+  { id: '6', procedimento: 'Rosto Feminino', valor_unitario: 180.00, valor_total: 918.00 },
 ];
+
+// Formatador de moeda BRL
+const formatarMoeda = (valor) => {
+  return new Intl.NumberFormat('pt-BR', { 
+    style: 'currency', 
+    currency: 'BRL' 
+  }).format(valor);
+};
 
 export default function Tratamentos() {
   const [treatments, setTreatments] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [pacoteSelecionado, setPacoteSelecionado] = useState(null);
+  const navigate = useNavigate();
 
   useEffect(() => {
     async function fetchTreatments() {
       try {
         setLoading(true);
+        // Buscar apenas planos de pacotes ATIVOS da tabela planos_pacotes
         const { data, error } = await supabase
-          .from('services')
-          .select('name, price_single, price_package')
-          .eq('is_active', true)
-          .order('price_single', { ascending: true });
+          .from('planos_pacotes')
+          .select('*')
+          .eq('status', 'ATIVO')
+          .order('created_at', { ascending: true });
 
         if (error) throw error;
 
         if (data && data.length > 0) {
-          const formatted = data.map(item => ({
-            id: item.id || item.name,
-            area: item.name,
-            avulso: `R$ ${Number(item.price_single).toFixed(2).replace('.', ',')}`,
-            pacote: item.price_package 
-              ? `R$ ${Number(item.price_package).toFixed(2).replace('.', ',')}` 
-              : 'Sob Consulta'
-          }));
-          setTreatments(formatted);
+          setTreatments(data);
         } else {
           setTreatments(fallbackTreatments);
         }
       } catch (err) {
-        console.warn('Using fallback data due to Supabase error in catalog:', err.message);
+        console.warn('Erro ao buscar planos de pacotes, usando dados de fallback:', err.message);
         setTreatments(fallbackTreatments);
       } finally {
         setLoading(false);
@@ -51,12 +54,37 @@ export default function Tratamentos() {
     fetchTreatments();
   }, []);
 
+  // Handler para seleção de pacote (apenas um por vez)
+  const handleSelectPacote = (pacoteId) => {
+    setPacoteSelecionado(pacoteId === pacoteSelecionado ? null : pacoteId);
+  };
+
+  // Handler para agendar pacote selecionado
+  const handleReservar = () => {
+    if (!pacoteSelecionado) return;
+    
+    const pacote = treatments.find(t => t.id === pacoteSelecionado);
+    
+    // Salvar pacote selecionado no localStorage para usar nas próximas etapas
+    localStorage.setItem('pacote_selecionado', JSON.stringify({
+      id: pacote.id,
+      nome: pacote.procedimento,
+      valor_unitario: pacote.valor_unitario,
+      valor_total: pacote.valor_total,
+      quantidade_sessoes: pacote.quantidade_sessoes,
+      nome_pacote: pacote.nome_pacote
+    }));
+    
+    // Navegar para etapa de dados (CPF)
+    navigate('/agendar/dados');
+  };
+
   return (
     <main className="pt-48 pb-20 px-6 max-w-screen-xl mx-auto">
       {/* Hero Section */}
       <header className="mb-24 flex flex-col items-center text-center">
         <span className="font-label text-[10px] tracking-[0.4em] uppercase text-[#775841] mb-6">Inovação em Estética</span>
-        <h1 className="font-headline italic text-5xl md:text-7xl text-[#4A3728] mb-8 max-w-3xl leading-tight">Catálogo de Procedimentos</h1>
+        <h1 className="font-headline italic text-5xl md:text-7xl text-[#4A3728] mb-8 max-w-3xl leading-tight">Pacotes de 6 Sessões</h1>
         <p className="font-body text-lg text-[#4A3728]/80 max-w-xl leading-relaxed">
           A tecnologia mais avançada do mercado para uma pele impecável. Menos sessões, maior conforto e resultados definitivos para todos os tipos de pele.
         </p>
@@ -95,17 +123,33 @@ export default function Tratamentos() {
                 </thead>
                 <tbody className="font-body text-[#4A3728]">
                   {treatments.map((row, i) => (
-                    <tr key={row.id || i} className={`group ${i > 0 ? 'border-t border-[#4A3728]/10' : ''}`}>
-                      <td className="py-8 font-medium">{row.area}</td>
-                      <td className="py-8 px-4 opacity-70 italic">{row.avulso}</td>
-                      <td className="py-8 text-right font-extrabold tracking-tight text-xl">{row.pacote}</td>
+                    <tr 
+                      key={row.id || i} 
+                      className={`group cursor-pointer transition-all duration-300 ${
+                        i > 0 ? 'border-t border-[#4A3728]/10' : ''
+                      } ${
+                        pacoteSelecionado === row.id ? 'bg-[#775841]/10' : 'hover:bg-[#775841]/5'
+                      }`}
+                      onClick={() => handleSelectPacote(row.id)}
+                    >
+                      <td className="py-8 font-medium flex items-center gap-3">
+                        {/* Checkbox elegante - aparece apenas no item selecionado */}
+                        {pacoteSelecionado === row.id && (
+                          <div className="w-5 h-5 rounded border-2 border-[#775841] bg-[#775841] flex items-center justify-center flex-shrink-0">
+                            <span className="material-symbols-outlined text-white text-sm">check</span>
+                          </div>
+                        )}
+                        {row.procedimento}
+                      </td>
+                      <td className="py-8 px-4 opacity-70 italic">{formatarMoeda(row.valor_unitario)}</td>
+                      <td className="py-8 text-right font-extrabold tracking-tight text-xl">{formatarMoeda(row.valor_total)}</td>
                     </tr>
                   ))}
                   
                   {!loading && treatments.length === 0 && (
                     <tr>
                       <td colSpan="3" className="py-12 text-center opacity-60 text-sm">
-                        Catálogo em atualização.
+                        Nenhum pacote disponível no momento.
                       </td>
                     </tr>
                   )}
@@ -115,14 +159,23 @@ export default function Tratamentos() {
             <div className="mt-12 flex flex-col md:flex-row items-center justify-between gap-8 pt-8 border-t border-[#4A3728]/10">
               <div className="flex items-center gap-4">
                 <span className="material-symbols-outlined text-[#4A3728]">info</span>
-                <p className="text-xs text-[#4A3728]/60 italic">Valores promocionais sujeitos à disponibilidade.</p>
+                <p className="text-xs text-[#4A3728]/60 italic">
+                  {pacoteSelecionado 
+                    ? 'Pacote selecionado. Clique em "Reservar Agora" para continuar.' 
+                    : 'Selecione um pacote na tabela acima para prosseguir.'}
+                </p>
               </div>
-              <Link
-                to="/agendar"
-                className="bg-[#4A3728] text-[#FDFCFB] px-10 py-5 rounded-full font-label text-[10px] tracking-[0.2em] uppercase hover:scale-105 transition-transform duration-300 whitespace-nowrap"
+              <button
+                onClick={handleReservar}
+                disabled={!pacoteSelecionado}
+                className={`px-10 py-5 rounded-full font-label text-[10px] tracking-[0.2em] uppercase transition-all duration-300 whitespace-nowrap ${
+                  pacoteSelecionado
+                    ? 'bg-[#4A3728] text-[#FDFCFB] hover:scale-105 cursor-pointer'
+                    : 'bg-[#4A3728]/30 text-[#FDFCFB]/50 cursor-not-allowed'
+                }`}
               >
                 Reservar Agora
-              </Link>
+              </button>
             </div>
           </div>
         </div>

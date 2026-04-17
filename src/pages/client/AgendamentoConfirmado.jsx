@@ -1,6 +1,31 @@
+import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 
 export default function AgendamentoConfirmado() {
+  const [confirmado, setConfirmado] = useState(null);
+
+  useEffect(() => {
+    const dados = localStorage.getItem('agendamento_confirmado');
+    if (dados) {
+      try {
+        setConfirmado(JSON.parse(dados));
+      } catch {
+        // fallback com dados vazios
+      }
+    }
+  }, []);
+
+  const nomeCliente = confirmado?.cliente_nome || 'Cliente';
+  const procedimento = confirmado?.procedimento || 'Procedimento Selecionado';
+
+  const dataFormatada = confirmado?.data
+    ? new Date(confirmado.data + 'T00:00:00').toLocaleDateString('pt-BR', {
+        day: 'numeric', month: 'long'
+      })
+    : 'Data a confirmar';
+
+  const horario = confirmado?.horario || '--:--';
+
   return (
     <main className="flex-grow flex items-center justify-center px-6 py-20 relative bg-background overflow-hidden min-h-[calc(100vh-200px)]">
       {/* Abstract Decoration */}
@@ -23,7 +48,7 @@ export default function AgendamentoConfirmado() {
             Agendamento Confirmado!
           </h1>
           <p className="text-lg md:text-xl font-body text-[#4A3728]/80 leading-relaxed max-w-lg mx-auto font-light">
-            Tudo pronto, <span className="font-semibold text-[#4A3728]">Maria Luiza</span>! Estamos ansiosas para cuidar de você em nosso santuário de beleza.
+            Tudo pronto, <span className="font-semibold text-[#4A3728]">{nomeCliente}</span>! Estamos ansiosas para cuidar de você em nosso santuário de beleza.
           </p>
         </div>
 
@@ -33,7 +58,7 @@ export default function AgendamentoConfirmado() {
             <span className="material-symbols-outlined text-[#4A3728]/60">calendar_today</span>
             <div className="text-left">
               <p className="text-[10px] tracking-[0.2em] uppercase text-[#82756d] font-bold">Data & Horário</p>
-              <p className="text-sm font-body font-semibold text-[#4A3728]">15 de Outubro às 14:30</p>
+              <p className="text-sm font-body font-semibold text-[#4A3728]">{dataFormatada} às {horario}</p>
             </div>
           </div>
           <div className="hidden md:block w-px h-8 bg-[#d3c3ba]/20"></div>
@@ -41,7 +66,7 @@ export default function AgendamentoConfirmado() {
             <span className="material-symbols-outlined text-[#4A3728]/60">spa</span>
             <div className="text-left">
               <p className="text-[10px] tracking-[0.2em] uppercase text-[#82756d] font-bold">Tratamento</p>
-              <p className="text-sm font-body font-semibold text-[#4A3728]">Dermo-Revitalização Luxo</p>
+              <p className="text-sm font-body font-semibold text-[#4A3728]">{procedimento}</p>
             </div>
           </div>
           <button className="bg-[#4A3728] text-[#FDFCFB] px-8 py-4 rounded-full text-[11px] tracking-widest uppercase font-bold hover:opacity-90 transition-all duration-500 shadow-lg shadow-[#4A3728]/10 whitespace-nowrap">

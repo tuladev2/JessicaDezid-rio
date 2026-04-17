@@ -57,23 +57,19 @@ export default function Pacotes() {
     }
   };
 
-  // Buscar pacotes vendidos do Supabase
+  // Buscar planos de pacotes do Supabase (tabela planos_pacotes)
   const fetchPacotes = async () => {
     try {
       const { data, error } = await supabase
-        .from('pacotes_vendidos')
-        .select(`
-          *,
-          clients(id, full_name),
-          services(id, name)
-        `)
+        .from('planos_pacotes')
+        .select('*')
         .order('created_at', { ascending: false });
 
       if (error) throw error;
       setPacotes(data || []);
     } catch (err) {
-      console.error('Erro ao buscar pacotes:', err);
-      showNotification('Erro ao carregar pacotes', 'error');
+      console.error('Erro ao buscar planos de pacotes:', err);
+      showNotification('Erro ao carregar planos de pacotes', 'error');
     }
   };
 
@@ -259,7 +255,7 @@ export default function Pacotes() {
     }
   };
 
-  // Criar pacote
+  // Criar ou atualizar pacote (upsert na tabela planos_pacotes)
   const criarPacote = async () => {
     try {
       if (!procedimentoSelecionado || !nomePacote.trim()) {
@@ -274,37 +270,42 @@ export default function Pacotes() {
       if (imagemSelecionada) {
         imagemUrl = await uploadImagem();
         if (!imagemUrl) {
-          // Se o upload falhou, não continuar
           setSaving(false);
           return;
         }
       }
 
+      // Calcular valor total com desconto
+      const subtotal = valorUnitario * quantidadeSessoes;
+      const valorDescontoCalculado = tipoDesconto === 'porcentagem' 
+        ? (subtotal * desconto) / 100 
+        : desconto;
+      const valorTotalCalculado = Math.max(0, subtotal - valorDescontoCalculado);
+
       const payload = {
         nome_pacote: nomePacote,
-        service_id: procedimentoSelecionado,
+        procedimento: procedimentoSelecionado,
         quantidade_sessoes: quantidadeSessoes,
         valor_unitario: valorUnitario,
-        desconto_tipo: tipoDesconto, // CORRIGIDO: era tipo_desconto
-        desconto_valor: desconto,
-        valor_total: valorTotal,
-        client_id: null,
-        imagem_url: imagemUrl // Adicionar URL da imagem
+        desconto_percentual: tipoDesconto === 'porcentagem' ? desconto : 0,
+        valor_total: valorTotalCalculado,
+        status: 'ATIVO',
+        imagem_url: imagemUrl
       };
 
-      console.log('Criando pacote com payload:', payload);
+      console.log('Criando/atualizando plano de pacote:', payload);
 
       const { data, error } = await supabase
-        .from('pacotes_vendidos')
+        .from('planos_pacotes')
         .insert([payload])
         .select();
 
       if (error) {
-        console.error('Erro do Supabase ao criar pacote:', error);
+        console.error('Erro do Supabase ao criar plano:', error);
         throw error;
       }
 
-      console.log('Pacote criado com sucesso:', data);
+      console.log('Plano de pacote criado com sucesso:', data);
 
       await fetchPacotes();
 
@@ -318,22 +319,20 @@ export default function Pacotes() {
       setImagemSelecionada(null);
       setPreviewImagem(null);
 
-      showNotification('Pacote criado com sucesso!', 'success');
+      showNotification('Plano de pacote criado com sucesso!', 'success');
     } catch (err) {
-      console.error('Erro completo ao criar pacote:', err);
+      console.error('Erro completo ao criar plano:', err);
       
-      let errorMessage = 'Erro ao criar pacote';
+      let errorMessage = 'Erro ao criar plano de pacote';
       
       if (err.message) {
         errorMessage += `: ${err.message}`;
       }
       
       if (err.code === '42501') {
-        errorMessage = 'Erro de permissão. Verifique as políticas RLS da tabela pacotes_vendidos.';
+        errorMessage = 'Erro de permissão. Verifique as políticas RLS da tabela planos_pacotes.';
       } else if (err.code === '42P01') {
-        errorMessage = 'Tabela "pacotes_vendidos" não encontrada. Execute o SQL no Supabase.';
-      } else if (err.code === '23503') {
-        errorMessage = 'Erro de chave estrangeira. Verifique se o procedimento existe.';
+        errorMessage = 'Tabela "planos_pacotes" não encontrada. Execute o SQL no Supabase.';
       }
       
       showNotification(errorMessage, 'error');
@@ -400,33 +399,18 @@ export default function Pacotes() {
                   />
                 </div>
 
-                {/* Procedimento - Campo editável conforme solicitado */}
+            {/* Procedimento - Campo editável conforme solicitado */}
                 <div>
                   <label className="block text-[10px] tracking-widest uppercase text-secondary mb-2 font-semibold">
                     Procedimento *
                   </label>
-                  <div className="flex items-center gap-2">
-                    <select 
-                      value={procedimentoSelecionado}
-                      onChange={(e) => handleProcedimentoChange(e.target.value)}
-                      className="flex-1 bg-transparent border-0 border-b border-outline-variant pb-2 text-sm text-on-surface focus:border-primary focus:ring-0 focus:outline-none"
-                    >
-                      <option value="">Selecione um procedimento</option>
-                      {services.map(service => (
-                        <option key={service.id} value={service.id}>
-                          {service.name}
-                        </option>
-                      ))}
-                    </select>
-                    <button
-                      type="button"
-                      onClick={() => setModalNovoProcedimento(true)}
-                      className="text-primary hover:text-primary/80 transition-colors"
-                      title="Adicionar novo procedimento"
-                    >
-                      <span className="material-symbols-outlined text-xl">add_circle</span>
-                    </button>
-                  </div>
+                  <input
+                    type="text"
+                    value={procedimentoSelecionado}
+                    onChange={(e) => setProcedimentoSelecionado(e.target.value)}
+                    placeholder="Ex: Buço ou Queixo, Axilas, Virilha..."
+                    className="w-full bg-transparent border-0 border-b border-outline-variant pb-2 text-sm text-on-surface focus:border-primary focus:ring-0 focus:outline-none"
+                  />
                 </div>
 
                 {/* Quantidade de Sessões - Campo editável conforme solicitado */}
@@ -586,7 +570,8 @@ export default function Pacotes() {
                     <th className="text-left py-4 px-4 lg:px-6 text-[10px] tracking-widest uppercase text-secondary font-medium">Pacote</th>
                     <th className="text-left py-4 px-4 lg:px-6 text-[10px] tracking-widest uppercase text-secondary font-medium">Procedimento</th>
                     <th className="text-center py-4 px-4 lg:px-6 text-[10px] tracking-widest uppercase text-secondary font-medium">Sessões</th>
-                    <th className="text-left py-4 px-4 lg:px-6 text-[10px] tracking-widest uppercase text-secondary font-medium">Valor</th>
+                    <th className="text-left py-4 px-4 lg:px-6 text-[10px] tracking-widest uppercase text-secondary font-medium">Valor Unitário</th>
+                    <th className="text-left py-4 px-4 lg:px-6 text-[10px] tracking-widest uppercase text-secondary font-medium">Valor Total</th>
                     <th className="text-center py-4 px-4 lg:px-6 text-[10px] tracking-widest uppercase text-secondary font-medium">Status</th>
                   </tr>
                 </thead>
@@ -614,41 +599,28 @@ export default function Pacotes() {
                     ))
                   ) : pacotes.length > 0 ? (
                     pacotes.map((pacote) => {
-                      const progressPercentage = (pacote.sessoes_utilizadas / pacote.quantidade_sessoes) * 100;
                       return (
                         <tr key={pacote.id} className="border-b border-outline-variant/10 last:border-0 hover:bg-primary/5 transition-colors">
                           <td className="py-4 px-4 lg:px-6">
-                            <div>
-                              <p className="text-sm text-on-surface font-medium">{pacote.nome_pacote}</p>
-                              <p className="text-xs text-secondary">{pacote.clients?.full_name || 'Cliente não definido'}</p>
-                            </div>
+                            <p className="text-sm text-on-surface font-medium">{pacote.nome_pacote}</p>
                           </td>
-                          <td className="py-4 px-4 lg:px-6 text-sm text-secondary">{pacote.services?.name}</td>
-                          <td className="py-4 px-4 lg:px-6">
-                            <div className="flex flex-col items-center">
-                              <span className="text-xs text-on-surface font-medium">
-                                {pacote.sessoes_utilizadas || 0}/{pacote.quantidade_sessoes}
-                              </span>
-                              <div className="w-16 h-1.5 bg-primary/10 rounded-full overflow-hidden mt-1">
-                                <div 
-                                  className="h-full bg-primary rounded-full transition-all duration-300" 
-                                  style={{ width: `${Math.min(progressPercentage, 100)}%` }} 
-                                />
-                              </div>
-                            </div>
+                          <td className="py-4 px-4 lg:px-6 text-sm text-secondary">{pacote.procedimento}</td>
+                          <td className="py-4 px-4 lg:px-6 text-center">
+                            <span className="text-xs text-on-surface font-medium">{pacote.quantidade_sessoes}</span>
                           </td>
                           <td className="py-4 px-4 lg:px-6 text-sm text-on-surface">
-                            R$ {parseFloat(pacote.valor_total).toFixed(2)}
+                            {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(pacote.valor_unitario)}
+                          </td>
+                          <td className="py-4 px-4 lg:px-6 text-sm text-on-surface font-semibold">
+                            {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(pacote.valor_total)}
                           </td>
                           <td className="py-4 px-4 lg:px-6 text-center">
                             <span className={`text-[10px] tracking-wider uppercase px-3 py-1 rounded-full font-medium ${
-                              pacote.status === 'Concluído'
+                              pacote.status === 'INATIVO'
                                 ? 'bg-tertiary/10 text-tertiary'
-                                : pacote.status === 'Ativo'
-                                ? 'bg-primary/10 text-primary'
-                                : 'bg-outline/10 text-outline'
+                                : 'bg-primary/10 text-primary'
                             }`}>
-                              {pacote.status || 'Ativo'}
+                              {pacote.status}
                             </span>
                           </td>
                         </tr>
@@ -659,8 +631,8 @@ export default function Pacotes() {
                       <td colSpan="5" className="py-12 text-center">
                         <div className="flex flex-col items-center justify-center opacity-60">
                           <span className="material-symbols-outlined text-4xl mb-4 text-outline">inventory_2</span>
-                          <p className="text-sm text-secondary">Ainda não há pacotes cadastrados na clínica.</p>
-                          <p className="text-xs text-outline mt-1">Crie o primeiro pacote usando o formulário ao lado.</p>
+                          <p className="text-sm text-secondary">Ainda não há planos de pacotes cadastrados.</p>
+                          <p className="text-xs text-outline mt-1">Crie o primeiro plano usando o formulário ao lado.</p>
                         </div>
                       </td>
                     </tr>
