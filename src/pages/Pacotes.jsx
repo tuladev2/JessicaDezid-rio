@@ -34,8 +34,53 @@ export default function Pacotes() {
   const [previewImagem, setPreviewImagem] = useState(null);
   const [uploadingImagem, setUploadingImagem] = useState(false);
 
+  // Estado para controlar aba ativa (formulário ou lista)
+  const [abaAtiva, setAbaAtiva] = useState('lista'); // 'form' | 'lista'
+  // Estado para edição inline
+  const [pacoteEditando, setPacoteEditando] = useState(null);
+  const [editForm, setEditForm] = useState({});
+
+  const iniciarEdicao = (pacote) => {
+    setPacoteEditando(pacote.id);
+    setEditForm({
+      nome_pacote: pacote.nome_pacote,
+      procedimento: pacote.procedimento,
+      quantidade_sessoes: pacote.quantidade_sessoes,
+      valor_unitario: pacote.valor_unitario,
+      valor_total: pacote.valor_total,
+      status: pacote.status,
+    });
+  };
+
+  const cancelarEdicao = () => {
+    setPacoteEditando(null);
+    setEditForm({});
+  };
+
+  const salvarEdicao = async (pacoteId) => {
+    try {
+      const subtotal = Number(editForm.valor_unitario) * Number(editForm.quantidade_sessoes);
+      const payload = {
+        nome_pacote: editForm.nome_pacote,
+        procedimento: editForm.procedimento,
+        quantidade_sessoes: Number(editForm.quantidade_sessoes),
+        valor_unitario: Number(editForm.valor_unitario),
+        valor_total: Number(editForm.valor_total) || subtotal,
+        status: editForm.status,
+      };
+      const { error } = await supabase.from('planos_pacotes').update(payload).eq('id', pacoteId);
+      if (error) throw error;
+      await fetchPacotes();
+      setPacoteEditando(null);
+      showNotification('Pacote atualizado com sucesso!', 'success');
+    } catch (err) {
+      console.error('[Pacotes] Erro ao editar pacote:', err.message);
+      showNotification('Erro ao salvar edição.', 'error');
+    }
+  };
+
   // Estado para exclusão
-  const [pacoteParaExcluir, setPacoteParaExcluir] = useState(null); // objeto pacote ou null
+  const [pacoteParaExcluir, setPacoteParaExcluir] = useState(null);
   const [excluindo, setExcluindo] = useState(false);
 
   // Função para mostrar notificações
@@ -56,7 +101,7 @@ export default function Pacotes() {
       if (error) throw error;
       setServices(data || []);
     } catch (err) {
-      console.error('Erro ao buscar serviços:', err);
+      console.error('[Pacotes] Erro ao buscar serviços:', err.message);
       showNotification('Erro ao carregar serviços', 'error');
     }
   };
@@ -72,7 +117,7 @@ export default function Pacotes() {
       if (error) throw error;
       setPacotes(data || []);
     } catch (err) {
-      console.error('Erro ao buscar planos de pacotes:', err);
+      console.error('[Pacotes] Erro ao buscar planos de pacotes:', err.message);
       showNotification('Erro ao carregar planos de pacotes', 'error');
     }
   };
@@ -118,9 +163,14 @@ export default function Pacotes() {
   // Adicionar novo procedimento
   const adicionarNovoProcedimento = async () => {
     try {
-      // Validação detalhada
+      // PRIORIDADE 5: Validação de entrada em formulários
       if (!novoProcedimento.name.trim()) {
         showNotification('Nome do procedimento é obrigatório', 'error');
+        return;
+      }
+
+      if (novoProcedimento.name.trim().length > 100) {
+        showNotification('Nome do procedimento não pode exceder 100 caracteres', 'error');
         return;
       }
 
@@ -129,17 +179,18 @@ export default function Pacotes() {
         return;
       }
 
-      console.log('Tentando adicionar procedimento:', novoProcedimento);
+      if (parseInt(novoProcedimento.duration) <= 0) {
+        showNotification('Duração deve ser maior que zero', 'error');
+        return;
+      }
 
       const payload = {
-        name: novoProcedimento.name.trim(),
+        name: novoProcedimento.name.trim().slice(0, 100),
         price_single: parseFloat(novoProcedimento.price_single),
         duration: parseInt(novoProcedimento.duration) || 60,
         category: novoProcedimento.category,
         is_active: true
       };
-
-      console.log('Payload para Supabase:', payload);
 
       const { data, error } = await supabase
         .from('services')
@@ -148,11 +199,9 @@ export default function Pacotes() {
         .single();
 
       if (error) {
-        console.error('Erro do Supabase:', error);
+        console.error('[Pacotes] Erro ao adicionar procedimento:', error.code, error.message);
         throw error;
       }
-
-      console.log('Procedimento criado com sucesso:', data);
 
       // Atualizar lista de serviços
       await fetchServices();
@@ -167,19 +216,16 @@ export default function Pacotes() {
 
       showNotification('Procedimento adicionado com sucesso!', 'success');
     } catch (err) {
-      console.error('Erro completo ao adicionar procedimento:', err);
+      console.error('[Pacotes] Erro ao adicionar procedimento:', err.message);
       
-      // Mensagem de erro mais detalhada
       let errorMessage = 'Erro ao adicionar procedimento';
-      
-      if (err.message) {
-        errorMessage += `: ${err.message}`;
-      }
       
       if (err.code === '42501') {
         errorMessage = 'Erro de permissão. Verifique as políticas RLS no Supabase.';
       } else if (err.code === '42P01') {
         errorMessage = 'Tabela "services" não encontrada. Execute o SQL no Supabase.';
+      } else if (err.message) {
+        errorMessage += `: ${err.message}`;
       }
       
       showNotification(errorMessage, 'error');
@@ -225,8 +271,6 @@ export default function Pacotes() {
       const nomeArquivo = `${timestamp}-${imagemSelecionada.name.replace(/[^a-zA-Z0-9.-]/g, '_')}`;
       const caminhoArquivo = `pacotes/${nomeArquivo}`;
 
-      console.log('Fazendo upload da imagem:', caminhoArquivo);
-
       // Upload para o Supabase Storage
       const { data, error } = await supabase.storage
         .from('pacotes-imagens')
@@ -236,22 +280,18 @@ export default function Pacotes() {
         });
 
       if (error) {
-        console.error('Erro ao fazer upload:', error);
+        console.error('[Pacotes] Erro ao fazer upload:', error.message);
         throw error;
       }
-
-      console.log('Upload realizado com sucesso:', data);
 
       // Obter URL pública da imagem
       const { data: urlData } = supabase.storage
         .from('pacotes-imagens')
         .getPublicUrl(caminhoArquivo);
 
-      console.log('URL pública da imagem:', urlData.publicUrl);
-
       return urlData.publicUrl;
     } catch (err) {
-      console.error('Erro ao fazer upload da imagem:', err);
+      console.error('[Pacotes] Erro ao fazer upload da imagem:', err.message);
       showNotification('Erro ao fazer upload da imagem', 'error');
       return null;
     } finally {
@@ -262,8 +302,24 @@ export default function Pacotes() {
   // Criar ou atualizar pacote (upsert na tabela planos_pacotes)
   const criarPacote = async () => {
     try {
+      // PRIORIDADE 5: Validação de entrada em formulários
       if (!procedimentoSelecionado || !nomePacote.trim()) {
         showNotification('Preencha todos os campos obrigatórios', 'error');
+        return;
+      }
+
+      if (nomePacote.trim().length > 100) {
+        showNotification('Nome do pacote não pode exceder 100 caracteres', 'error');
+        return;
+      }
+
+      if (quantidadeSessoes <= 0 || quantidadeSessoes > 50) {
+        showNotification('Quantidade de sessões deve estar entre 1 e 50', 'error');
+        return;
+      }
+
+      if (valorUnitario <= 0) {
+        showNotification('Valor unitário deve ser maior que zero', 'error');
         return;
       }
 
@@ -287,17 +343,15 @@ export default function Pacotes() {
       const valorTotalCalculado = Math.max(0, subtotal - valorDescontoCalculado);
 
       const payload = {
-        nome_pacote: nomePacote,
-        procedimento: procedimentoSelecionado,
-        quantidade_sessoes: quantidadeSessoes,
-        valor_unitario: valorUnitario,
-        desconto_percentual: tipoDesconto === 'porcentagem' ? desconto : 0,
+        nome_pacote: nomePacote.trim().slice(0, 100),
+        procedimento: procedimentoSelecionado.slice(0, 100),
+        quantidade_sessoes: Math.max(1, Math.min(50, quantidadeSessoes)),
+        valor_unitario: Math.max(0, valorUnitario),
+        desconto_percentual: tipoDesconto === 'porcentagem' ? Math.max(0, desconto) : 0,
         valor_total: valorTotalCalculado,
         status: 'ATIVO',
         imagem_url: imagemUrl
       };
-
-      console.log('Criando/atualizando plano de pacote:', payload);
 
       const { data, error } = await supabase
         .from('planos_pacotes')
@@ -305,11 +359,9 @@ export default function Pacotes() {
         .select();
 
       if (error) {
-        console.error('Erro do Supabase ao criar plano:', error);
+        console.error('[Pacotes] Erro ao criar plano:', error.code, error.message);
         throw error;
       }
-
-      console.log('Plano de pacote criado com sucesso:', data);
 
       await fetchPacotes();
 
@@ -325,18 +377,16 @@ export default function Pacotes() {
 
       showNotification('Plano de pacote criado com sucesso!', 'success');
     } catch (err) {
-      console.error('Erro completo ao criar plano:', err);
+      console.error('[Pacotes] Erro ao criar plano:', err.message);
       
       let errorMessage = 'Erro ao criar plano de pacote';
-      
-      if (err.message) {
-        errorMessage += `: ${err.message}`;
-      }
       
       if (err.code === '42501') {
         errorMessage = 'Erro de permissão. Verifique as políticas RLS da tabela planos_pacotes.';
       } else if (err.code === '42P01') {
         errorMessage = 'Tabela "planos_pacotes" não encontrada. Execute o SQL no Supabase.';
+      } else if (err.message) {
+        errorMessage += `: ${err.message}`;
       }
       
       showNotification(errorMessage, 'error');
@@ -378,7 +428,7 @@ export default function Pacotes() {
       showNotification('Pacote excluído com sucesso!', 'success');
       setPacoteParaExcluir(null);
     } catch (err) {
-      console.error('Erro ao excluir pacote:', err);
+      console.error('[Pacotes] Erro ao excluir pacote:', err.message);
       showNotification(`Erro ao excluir: ${err.message}`, 'error');
     } finally {
       setExcluindo(false);
@@ -410,17 +460,336 @@ export default function Pacotes() {
           </div>
         )}
 
-        {/* Header com título dinâmico */}
-        <div className="flex items-end justify-between mb-6 lg:mb-8">
+        {/* Header com título dinâmico + abas */}
+        <div className="flex flex-col sm:flex-row sm:items-end justify-between mb-6 lg:mb-8 gap-4">
           <div>
             <p className="text-xs tracking-[0.2em] uppercase text-secondary mb-1">Gestão de Planos</p>
             <h2 className="font-serif text-2xl lg:text-3xl text-on-surface">
               Pacotes {quantidadeSessoes}x
             </h2>
           </div>
+          {/* Abas mobile */}
+          <div className="flex bg-surface-container rounded-xl p-1 gap-1 self-start sm:self-auto">
+            <button
+              onClick={() => setAbaAtiva('lista')}
+              className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold transition-all ${
+                abaAtiva === 'lista'
+                  ? 'bg-surface-container-lowest text-primary shadow-sm'
+                  : 'text-secondary hover:text-on-surface'
+              }`}
+            >
+              <span className="material-symbols-outlined text-base">inventory_2</span>
+              Planos Ativos
+              {pacotes.length > 0 && (
+                <span className="bg-primary text-on-primary text-[10px] rounded-full w-4 h-4 flex items-center justify-center">
+                  {pacotes.length}
+                </span>
+              )}
+            </button>
+            <button
+              onClick={() => setAbaAtiva('form')}
+              className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold transition-all ${
+                abaAtiva === 'form'
+                  ? 'bg-surface-container-lowest text-primary shadow-sm'
+                  : 'text-secondary hover:text-on-surface'
+              }`}
+            >
+              <span className="material-symbols-outlined text-base">add_circle</span>
+              Novo Pacote
+            </button>
+          </div>
         </div>
 
-        {/* Layout Mobile-First: Flex Column no Mobile, Grid no Desktop */}
+        {/* ── ABA: PLANOS ATIVOS ─────────────────────────────────────────── */}
+        {abaAtiva === 'lista' && (
+          <div className="bg-surface-container-lowest rounded-2xl editorial-shadow">
+            <div className="p-4 lg:p-6 border-b border-outline-variant/20 flex items-center justify-between">
+              <h3 className="font-serif text-lg text-on-surface">Planos Ativos</h3>
+              <button
+                onClick={() => setAbaAtiva('form')}
+                className="flex items-center gap-1.5 px-4 py-2 bg-primary text-on-primary rounded-xl text-xs font-semibold hover:opacity-90 transition-all"
+              >
+                <span className="material-symbols-outlined text-base">add</span>
+                Novo Pacote
+              </button>
+            </div>
+
+            {/* Cards mobile / Tabela desktop */}
+            {loading ? (
+              <div className="p-6 space-y-3">
+                {Array.from({ length: 3 }).map((_, i) => (
+                  <div key={i} className="animate-pulse h-20 bg-surface-container rounded-xl" />
+                ))}
+              </div>
+            ) : pacotes.length === 0 ? (
+              <div className="py-16 text-center">
+                <span className="material-symbols-outlined text-4xl text-outline mb-3 block">inventory_2</span>
+                <p className="text-sm text-secondary">Nenhum plano cadastrado ainda.</p>
+                <button
+                  onClick={() => setAbaAtiva('form')}
+                  className="mt-4 px-6 py-2 bg-primary text-on-primary rounded-xl text-xs font-semibold hover:opacity-90 transition-all"
+                >
+                  Criar primeiro pacote
+                </button>
+              </div>
+            ) : (
+              <>
+                {/* MOBILE: Cards empilhados */}
+                <div className="lg:hidden divide-y divide-outline-variant/10">
+                  {pacotes.map((pacote) => (
+                    <div key={pacote.id} className="p-4">
+                      {pacoteEditando === pacote.id ? (
+                        /* Modo edição mobile */
+                        <div className="space-y-3">
+                          <input
+                            value={editForm.nome_pacote}
+                            onChange={e => setEditForm(f => ({ ...f, nome_pacote: e.target.value }))}
+                            className="w-full border border-outline-variant rounded-lg px-3 py-2 text-sm"
+                            placeholder="Nome do pacote"
+                          />
+                          <input
+                            value={editForm.procedimento}
+                            onChange={e => setEditForm(f => ({ ...f, procedimento: e.target.value }))}
+                            className="w-full border border-outline-variant rounded-lg px-3 py-2 text-sm"
+                            placeholder="Procedimento"
+                          />
+                          <div className="grid grid-cols-2 gap-2">
+                            <div>
+                              <label className="text-[10px] uppercase tracking-widest text-secondary">Sessões</label>
+                              <input
+                                type="number"
+                                value={editForm.quantidade_sessoes}
+                                onChange={e => setEditForm(f => ({ ...f, quantidade_sessoes: e.target.value }))}
+                                className="w-full border border-outline-variant rounded-lg px-3 py-2 text-sm mt-1"
+                              />
+                            </div>
+                            <div>
+                              <label className="text-[10px] uppercase tracking-widest text-secondary">Valor Unit.</label>
+                              <input
+                                type="number"
+                                step="0.01"
+                                value={editForm.valor_unitario}
+                                onChange={e => setEditForm(f => ({ ...f, valor_unitario: e.target.value }))}
+                                className="w-full border border-outline-variant rounded-lg px-3 py-2 text-sm mt-1"
+                              />
+                            </div>
+                          </div>
+                          <div className="grid grid-cols-2 gap-2">
+                            <div>
+                              <label className="text-[10px] uppercase tracking-widest text-secondary">Valor Total</label>
+                              <input
+                                type="number"
+                                step="0.01"
+                                value={editForm.valor_total}
+                                onChange={e => setEditForm(f => ({ ...f, valor_total: e.target.value }))}
+                                className="w-full border border-outline-variant rounded-lg px-3 py-2 text-sm mt-1"
+                              />
+                            </div>
+                            <div>
+                              <label className="text-[10px] uppercase tracking-widest text-secondary">Status</label>
+                              <select
+                                value={editForm.status}
+                                onChange={e => setEditForm(f => ({ ...f, status: e.target.value }))}
+                                className="w-full border border-outline-variant rounded-lg px-3 py-2 text-sm mt-1"
+                              >
+                                <option value="ATIVO">ATIVO</option>
+                                <option value="INATIVO">INATIVO</option>
+                              </select>
+                            </div>
+                          </div>
+                          <div className="flex gap-2 pt-1">
+                            <button
+                              onClick={() => salvarEdicao(pacote.id)}
+                              className="flex-1 py-2 bg-primary text-on-primary rounded-lg text-xs font-semibold"
+                            >
+                              Salvar
+                            </button>
+                            <button
+                              onClick={cancelarEdicao}
+                              className="flex-1 py-2 bg-surface-container text-on-surface rounded-lg text-xs font-semibold"
+                            >
+                              Cancelar
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        /* Modo visualização mobile */
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-semibold text-on-surface truncate">{pacote.nome_pacote}</p>
+                            <p className="text-xs text-secondary mt-0.5 truncate">{pacote.procedimento}</p>
+                            <div className="flex items-center gap-3 mt-2 flex-wrap">
+                              <span className="text-xs text-outline">{pacote.quantidade_sessoes} sessões</span>
+                              <span className="text-xs font-semibold text-primary">
+                                {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(pacote.valor_total)}
+                              </span>
+                              <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${
+                                pacote.status === 'INATIVO' ? 'bg-tertiary/10 text-tertiary' : 'bg-primary/10 text-primary'
+                              }`}>
+                                {pacote.status}
+                              </span>
+                            </div>
+                          </div>
+                          <div className="flex gap-1 flex-shrink-0">
+                            <button
+                              onClick={() => iniciarEdicao(pacote)}
+                              className="w-9 h-9 flex items-center justify-center rounded-full hover:bg-primary/10 text-secondary hover:text-primary transition-all"
+                            >
+                              <span className="material-symbols-outlined text-base">edit</span>
+                            </button>
+                            <button
+                              onClick={() => setPacoteParaExcluir(pacote)}
+                              className="w-9 h-9 flex items-center justify-center rounded-full hover:bg-red-50 text-secondary hover:text-red-600 transition-all"
+                            >
+                              <span className="material-symbols-outlined text-base">delete</span>
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+
+                {/* DESKTOP: Tabela */}
+                <div className="hidden lg:block overflow-x-auto">
+                  <table className="w-full">
+                    <thead>
+                      <tr className="border-b border-outline-variant/10">
+                        <th className="text-left py-4 px-6 text-[10px] tracking-widest uppercase text-secondary font-medium">Pacote</th>
+                        <th className="text-left py-4 px-6 text-[10px] tracking-widest uppercase text-secondary font-medium">Procedimento</th>
+                        <th className="text-center py-4 px-6 text-[10px] tracking-widest uppercase text-secondary font-medium">Sessões</th>
+                        <th className="text-right py-4 px-6 text-[10px] tracking-widest uppercase text-secondary font-medium">Unit.</th>
+                        <th className="text-right py-4 px-6 text-[10px] tracking-widest uppercase text-secondary font-medium">Total</th>
+                        <th className="text-center py-4 px-6 text-[10px] tracking-widest uppercase text-secondary font-medium">Status</th>
+                        <th className="text-center py-4 px-6 text-[10px] tracking-widest uppercase text-secondary font-medium">Ações</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {pacotes.map((pacote) => (
+                        <tr key={pacote.id} className="border-b border-outline-variant/10 last:border-0 hover:bg-primary/5 transition-colors">
+                          {pacoteEditando === pacote.id ? (
+                            /* Linha de edição desktop */
+                            <>
+                              <td className="py-3 px-6">
+                                <input
+                                  value={editForm.nome_pacote}
+                                  onChange={e => setEditForm(f => ({ ...f, nome_pacote: e.target.value }))}
+                                  className="w-full border border-outline-variant rounded-lg px-2 py-1.5 text-sm"
+                                />
+                              </td>
+                              <td className="py-3 px-6">
+                                <input
+                                  value={editForm.procedimento}
+                                  onChange={e => setEditForm(f => ({ ...f, procedimento: e.target.value }))}
+                                  className="w-full border border-outline-variant rounded-lg px-2 py-1.5 text-sm"
+                                />
+                              </td>
+                              <td className="py-3 px-6">
+                                <input
+                                  type="number"
+                                  value={editForm.quantidade_sessoes}
+                                  onChange={e => setEditForm(f => ({ ...f, quantidade_sessoes: e.target.value }))}
+                                  className="w-16 border border-outline-variant rounded-lg px-2 py-1.5 text-sm text-center mx-auto block"
+                                />
+                              </td>
+                              <td className="py-3 px-6">
+                                <input
+                                  type="number"
+                                  step="0.01"
+                                  value={editForm.valor_unitario}
+                                  onChange={e => setEditForm(f => ({ ...f, valor_unitario: e.target.value }))}
+                                  className="w-24 border border-outline-variant rounded-lg px-2 py-1.5 text-sm text-right ml-auto block"
+                                />
+                              </td>
+                              <td className="py-3 px-6">
+                                <input
+                                  type="number"
+                                  step="0.01"
+                                  value={editForm.valor_total}
+                                  onChange={e => setEditForm(f => ({ ...f, valor_total: e.target.value }))}
+                                  className="w-24 border border-outline-variant rounded-lg px-2 py-1.5 text-sm text-right ml-auto block"
+                                />
+                              </td>
+                              <td className="py-3 px-6">
+                                <select
+                                  value={editForm.status}
+                                  onChange={e => setEditForm(f => ({ ...f, status: e.target.value }))}
+                                  className="border border-outline-variant rounded-lg px-2 py-1.5 text-xs mx-auto block"
+                                >
+                                  <option value="ATIVO">ATIVO</option>
+                                  <option value="INATIVO">INATIVO</option>
+                                </select>
+                              </td>
+                              <td className="py-3 px-6">
+                                <div className="flex items-center justify-center gap-1">
+                                  <button
+                                    onClick={() => salvarEdicao(pacote.id)}
+                                    className="px-3 py-1.5 bg-primary text-on-primary rounded-lg text-xs font-semibold hover:opacity-90"
+                                  >
+                                    Salvar
+                                  </button>
+                                  <button
+                                    onClick={cancelarEdicao}
+                                    className="px-3 py-1.5 bg-surface-container text-on-surface rounded-lg text-xs font-semibold hover:bg-surface-container-high"
+                                  >
+                                    Cancelar
+                                  </button>
+                                </div>
+                              </td>
+                            </>
+                          ) : (
+                            /* Linha normal desktop */
+                            <>
+                              <td className="py-4 px-6">
+                                <p className="text-sm text-on-surface font-medium">{pacote.nome_pacote}</p>
+                              </td>
+                              <td className="py-4 px-6 text-sm text-secondary">{pacote.procedimento}</td>
+                              <td className="py-4 px-6 text-center text-sm text-on-surface">{pacote.quantidade_sessoes}</td>
+                              <td className="py-4 px-6 text-right text-sm text-on-surface">
+                                {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(pacote.valor_unitario)}
+                              </td>
+                              <td className="py-4 px-6 text-right text-sm text-on-surface font-semibold">
+                                {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(pacote.valor_total)}
+                              </td>
+                              <td className="py-4 px-6 text-center">
+                                <span className={`text-[10px] tracking-wider uppercase px-3 py-1 rounded-full font-medium ${
+                                  pacote.status === 'INATIVO' ? 'bg-tertiary/10 text-tertiary' : 'bg-primary/10 text-primary'
+                                }`}>
+                                  {pacote.status}
+                                </span>
+                              </td>
+                              <td className="py-4 px-6">
+                                <div className="flex items-center justify-center gap-1">
+                                  <button
+                                    onClick={() => iniciarEdicao(pacote)}
+                                    title="Editar"
+                                    className="w-8 h-8 flex items-center justify-center rounded-full text-secondary hover:text-primary hover:bg-primary/10 transition-all"
+                                  >
+                                    <span className="material-symbols-outlined text-base">edit</span>
+                                  </button>
+                                  <button
+                                    onClick={() => setPacoteParaExcluir(pacote)}
+                                    title="Excluir"
+                                    className="w-8 h-8 flex items-center justify-center rounded-full text-secondary hover:text-red-600 hover:bg-red-50 transition-all"
+                                  >
+                                    <span className="material-symbols-outlined text-base">delete</span>
+                                  </button>
+                                </div>
+                              </td>
+                            </>
+                          )}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </>
+            )}
+          </div>
+        )}
+
+        {/* ── ABA: NOVO PACOTE (formulário) ──────────────────────────────── */}
+        {abaAtiva === 'form' && (
         <div className="flex flex-col lg:grid lg:grid-cols-5 gap-6">
           {/* Formulário de Cadastro */}
           <div className="lg:col-span-2 space-y-6">
@@ -600,102 +969,8 @@ export default function Pacotes() {
               </div>
             </div>
           </div>
-
-          {/* Tabela de Planos Ativos */}
-          <div className="lg:col-span-3 bg-surface-container-lowest rounded-2xl editorial-shadow">
-            <div className="p-4 lg:p-6 border-b border-outline-variant/20">
-              <h3 className="font-serif text-lg text-on-surface">Planos Ativos</h3>
-            </div>
-
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead>
-                  <tr className="border-b border-outline-variant/10">
-                    <th className="text-left py-4 px-4 lg:px-6 text-[10px] tracking-widest uppercase text-secondary font-medium">Pacote</th>
-                    <th className="text-left py-4 px-4 lg:px-6 text-[10px] tracking-widest uppercase text-secondary font-medium">Procedimento</th>
-                    <th className="text-center py-4 px-4 lg:px-6 text-[10px] tracking-widest uppercase text-secondary font-medium">Sessões</th>
-                    <th className="text-left py-4 px-4 lg:px-6 text-[10px] tracking-widest uppercase text-secondary font-medium">Valor Unitário</th>
-                    <th className="text-left py-4 px-4 lg:px-6 text-[10px] tracking-widest uppercase text-secondary font-medium">Valor Total</th>
-                    <th className="text-center py-4 px-4 lg:px-6 text-[10px] tracking-widest uppercase text-secondary font-medium">Status</th>
-                    <th className="text-center py-4 px-4 lg:px-6 text-[10px] tracking-widest uppercase text-secondary font-medium">Ações</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {loading ? (
-                    // Skeleton loading
-                    Array.from({ length: 3 }).map((_, i) => (
-                      <tr key={i} className="border-b border-outline-variant/10">
-                        <td className="py-4 px-4 lg:px-6">
-                          <div className="animate-pulse h-4 bg-surface-container rounded w-24"></div>
-                        </td>
-                        <td className="py-4 px-4 lg:px-6">
-                          <div className="animate-pulse h-4 bg-surface-container rounded w-32"></div>
-                        </td>
-                        <td className="py-4 px-4 lg:px-6">
-                          <div className="animate-pulse h-4 bg-surface-container rounded w-16 mx-auto"></div>
-                        </td>
-                        <td className="py-4 px-4 lg:px-6">
-                          <div className="animate-pulse h-4 bg-surface-container rounded w-20"></div>
-                        </td>
-                        <td className="py-4 px-4 lg:px-6">
-                          <div className="animate-pulse h-4 bg-surface-container rounded w-16 mx-auto"></div>
-                        </td>
-                      </tr>
-                    ))
-                  ) : pacotes.length > 0 ? (
-                    pacotes.map((pacote) => {
-                      return (
-                        <tr key={pacote.id} className="border-b border-outline-variant/10 last:border-0 hover:bg-primary/5 transition-colors">
-                          <td className="py-4 px-4 lg:px-6">
-                            <p className="text-sm text-on-surface font-medium">{pacote.nome_pacote}</p>
-                          </td>
-                          <td className="py-4 px-4 lg:px-6 text-sm text-secondary">{pacote.procedimento}</td>
-                          <td className="py-4 px-4 lg:px-6 text-center">
-                            <span className="text-xs text-on-surface font-medium">{pacote.quantidade_sessoes}</span>
-                          </td>
-                          <td className="py-4 px-4 lg:px-6 text-sm text-on-surface">
-                            {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(pacote.valor_unitario)}
-                          </td>
-                          <td className="py-4 px-4 lg:px-6 text-sm text-on-surface font-semibold">
-                            {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(pacote.valor_total)}
-                          </td>
-                          <td className="py-4 px-4 lg:px-6 text-center">
-                            <span className={`text-[10px] tracking-wider uppercase px-3 py-1 rounded-full font-medium ${
-                              pacote.status === 'INATIVO'
-                                ? 'bg-tertiary/10 text-tertiary'
-                                : 'bg-primary/10 text-primary'
-                            }`}>
-                              {pacote.status}
-                            </span>
-                          </td>
-                          <td className="py-4 px-4 lg:px-6 text-center">
-                            <button
-                              onClick={() => setPacoteParaExcluir(pacote)}
-                              title="Excluir pacote"
-                              className="w-8 h-8 flex items-center justify-center rounded-full text-outline hover:text-red-600 hover:bg-red-50 transition-all duration-200 mx-auto"
-                            >
-                              <span className="material-symbols-outlined text-base">delete</span>
-                            </button>
-                          </td>
-                        </tr>
-                      );
-                    })
-                  ) : (
-                    <tr>
-                      <td colSpan="5" className="py-12 text-center">
-                        <div className="flex flex-col items-center justify-center opacity-60">
-                          <span className="material-symbols-outlined text-4xl mb-4 text-outline">inventory_2</span>
-                          <p className="text-sm text-secondary">Ainda não há planos de pacotes cadastrados.</p>
-                          <p className="text-xs text-outline mt-1">Crie o primeiro plano usando o formulário ao lado.</p>
-                        </div>
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </div>
         </div>
+        )}
       </div>
 
       {/* Modal de Adicionar Novo Procedimento */}

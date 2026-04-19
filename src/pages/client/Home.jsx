@@ -1,6 +1,46 @@
 import { Link } from 'react-router-dom';
+import { useState, useEffect } from 'react';
+import { supabase } from '../../lib/supabase';
+
+// Busca a imagem da home no banco — com cache-buster para forçar reload
+async function buscarImagemHome() {
+  try {
+    const { data } = await supabase
+      .from('configuracoes_clinica')
+      .select('imagem_home_url')
+      .maybeSingle();
+    return data?.imagem_home_url || null;
+  } catch {
+    return null;
+  }
+}
+
+const IMAGEM_FALLBACK = '/Jessica.jpg.jpeg';
 
 export default function Home() {
+  const [imagemHome, setImagemHome] = useState(null);
+
+  useEffect(() => {
+    buscarImagemHome().then((url) => {
+      if (url) {
+        // Garante cache-buster mesmo que o banco já tenha um ?t= antigo
+        const base = url.split('?')[0];
+        setImagemHome(`${base}?t=${Date.now()}`);
+      }
+    });
+
+    // Escuta evento disparado pelo Perfil após upload bem-sucedido
+    const handleImagemAtualizada = (e) => {
+      const novaUrl = e.detail?.url;
+      if (novaUrl) {
+        const base = novaUrl.split('?')[0];
+        setImagemHome(`${base}?t=${Date.now()}`);
+      }
+    };
+    window.addEventListener('imagem-home-atualizada', handleImagemAtualizada);
+    return () => window.removeEventListener('imagem-home-atualizada', handleImagemAtualizada);
+  }, []);
+
   return (
     <main className="pt-48 md:pt-64">
       {/* Hero Section */}
@@ -43,10 +83,12 @@ export default function Home() {
             <img
               alt="Jessica Dezidério"
               className="w-full h-full object-cover object-top"
-              src="/Jessica.jpg.jpeg"
+              src={imagemHome || IMAGEM_FALLBACK}
               onError={(e) => {
-                // Fallback enquanto a imagem local não estiver disponível
-                e.target.src = 'https://lh3.googleusercontent.com/aida/ADBb0ujQ16CqgmLmqedDgDUoHuXwlmK2rZROMeIL7ieDC2hTkU2xevMJG95yexvNhv2OCQymF2rv8viLnhEC6H5kMtm7ispYa_Y255ISImXj8WMDyq9ZlINNV3m-mqWwwn_TSEvgmY6NOsfTVhdLBG5GQLHKisBUZkQGWWw-T5XbxFSJxMUQdbOUOOpnp7M6WQrvOdHmu_J1ENlok4ID_D3EXaYtsLXwyd9_5tvWOOb0i2_t0o5JweIlINH5Zrv_mfxyv1Z_cLsDmH_RIg';
+                // Se a imagem do banco falhar, usa o fallback local
+                if (e.target.src !== window.location.origin + IMAGEM_FALLBACK) {
+                  e.target.src = IMAGEM_FALLBACK;
+                }
               }}
             />
             <div className="absolute inset-0 bg-gradient-to-t from-[#FDFCFB]/10 to-transparent"></div>

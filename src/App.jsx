@@ -1,6 +1,7 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider } from './lib/AuthContext';
 import ProtectedRoute from './components/ProtectedRoute';
+import { TestRLS } from './test-rls';
 
 import AdminLayout from './components/AdminLayout';
 import Login from './pages/Login';
@@ -11,6 +12,7 @@ import Clientes from './pages/Clientes';
 import Pacotes from './pages/Pacotes';
 import Suporte from './pages/Suporte';
 import Configuracoes from './pages/Configuracoes';
+import Perfil from './pages/Perfil';
 
 // Client Pages
 import ClientLayout from './components/ClientLayout';
@@ -49,8 +51,12 @@ export default function App() {
               <Route path="pacotes" element={<Pacotes />} />
               <Route path="suporte" element={<Suporte />} />
               <Route path="configuracoes" element={<Configuracoes />} />
+              <Route path="perfil" element={<Perfil />} />
             </Route>
           </Route>
+
+          {/* Test Route - Remove after testing */}
+          <Route path="/teste-rls" element={<TestRLS />} />
 
           {/* Default redirect to home page */}
           <Route path="*" element={<Navigate to="/" replace />} />

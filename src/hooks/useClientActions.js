@@ -18,7 +18,6 @@ export const useClientActions = () => {
         .from('appointments')
         .update({ 
           status: 'Concluído',
-          updated_at: new Date().toISOString()
         })
         .eq('id', appointmentId);
 
@@ -45,7 +44,6 @@ export const useClientActions = () => {
           appointment_date: newDate,
           start_time: newTime,
           status: 'Remarcado',
-          updated_at: new Date().toISOString()
         })
         .eq('id', appointmentId);
 
@@ -104,7 +102,6 @@ export const useClientActions = () => {
         .update({ 
           status: 'Cancelado',
           cancellation_reason: reason,
-          updated_at: new Date().toISOString()
         })
         .eq('id', appointmentId);
 

@@ -1,11 +1,17 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
+import { validarCPF, limparCPF } from '../../lib/cpfValidator';
 
 export default function AgendamentoDados() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const origem = searchParams.get('origem') || 'pacote'; // 'servico' ou 'pacote'
+  const origem = searchParams.get('origem') || 'pacote';
+
+  // Scroll para o topo ao entrar na página
+  useEffect(() => {
+    window.scrollTo({ top: 0, behavior: 'instant' });
+  }, []);
   
   const [formData, setFormData] = useState({
     name: '',
@@ -24,29 +30,23 @@ export default function AgendamentoDados() {
     const pacote = localStorage.getItem('pacote_selecionado');
     const servico = localStorage.getItem('servico_selecionado');
 
-    console.log('[AgendamentoDados] localStorage pacote:', pacote);
-    console.log('[AgendamentoDados] localStorage servico:', servico);
-
     if (pacote) {
       try {
         const parsed = JSON.parse(pacote);
-        console.log('[AgendamentoDados] Pacote carregado:', parsed);
         setItemSelecionado({ ...parsed, tipo: 'pacote' });
       } catch (err) {
-        console.warn('Erro ao carregar pacote do localStorage:', err);
+        console.error('[AgendamentoDados] Erro ao carregar pacote:', err.message);
         navigate('/tratamentos');
       }
     } else if (servico) {
       try {
         const parsed = JSON.parse(servico);
-        console.log('[AgendamentoDados] Serviço carregado:', parsed);
         setItemSelecionado({ ...parsed, tipo: 'servico_avulso' });
       } catch (err) {
-        console.warn('Erro ao carregar serviço do localStorage:', err);
+        console.error('[AgendamentoDados] Erro ao carregar serviço:', err.message);
         navigate('/agendar');
       }
     } else {
-      console.warn('[AgendamentoDados] Nenhum item no localStorage, redirecionando...');
       navigate(origem === 'servico' ? '/agendar' : '/tratamentos');
     }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -54,6 +54,13 @@ export default function AgendamentoDados() {
   // Função para buscar cliente por CPF
   const buscarClientePorCPF = async (cpf) => {
     if (!cpf || cpf.length < 11) return;
+
+    // PRIORIDADE 1: Validar CPF com dígito verificador
+    if (!validarCPF(cpf)) {
+      setClienteExistente(null);
+      setSessoesPacote(null);
+      return;
+    }
     
     setCpfLoading(true);
     try {
@@ -76,20 +83,24 @@ export default function AgendamentoDados() {
           birth: cliente.birth_date ? formatDateToBR(cliente.birth_date) : ''
         }));
 
-        // Buscar sessões disponíveis
-        const { data: pacotes, error: pacotesError } = await supabase
-          .from('pacotes_vendidos')
-          .select('*')
-          .eq('cliente_id', cliente.id)
-          .gt('sessoes_restantes', 0)
-          .eq('status', 'ativo');
+        // Buscar sessões disponíveis no plano do cliente
+        try {
+          const { data: pacotes, error: pacotesError } = await supabase
+            .from('planos_pacotes')
+            .select('quantidade_sessoes, status')
+            .eq('status', 'ATIVO');
 
-        if (!pacotesError && pacotes && pacotes.length > 0) {
-          const totalSessoes = pacotes.reduce((sum, p) => sum + p.sessoes_restantes, 0);
-          setSessoesPacote(totalSessoes);
+          if (!pacotesError && pacotes && pacotes.length > 0) {
+            // Soma total de sessões nos planos ativos (informativo)
+            const totalSessoes = pacotes.reduce((sum, p) => sum + (p.quantidade_sessoes || 0), 0);
+            setSessoesPacote(totalSessoes);
+          }
+        } catch {
+          // Não crítico — apenas informativo
+          setSessoesPacote(null);
         }
 
-        // Cliente existente — ir direto para horário sem precisar submeter o form
+        // PRIORIDADE 2: Usar sessionStorage para dados temporários, não localStorage
         const clienteData = {
           id: cliente.id,
           nome: cliente.full_name,
@@ -98,7 +109,7 @@ export default function AgendamentoDados() {
           isExistente: true,
           sessoesPacote: null
         };
-        localStorage.setItem('cliente_agendamento', JSON.stringify(clienteData));
+        sessionStorage.setItem('cliente_agendamento', JSON.stringify(clienteData));
 
         // Pequeno delay para mostrar a mensagem de boas-vindas antes de navegar
         setTimeout(() => {
@@ -116,7 +127,7 @@ export default function AgendamentoDados() {
         }));
       }
     } catch (err) {
-      console.warn('Erro ao buscar cliente:', err);
+      console.error('[AgendamentoDados] Erro ao buscar cliente:', err.message);
       setClienteExistente(null);
       setSessoesPacote(null);
     } finally {
@@ -133,32 +144,58 @@ export default function AgendamentoDados() {
 
   const handleChange = (e) => {
     const { name, value } = e.target;
-    setFormData({ ...formData, [name]: value });
     
-    // Se mudou o CPF, buscar cliente
-    if (name === 'cpf') {
-      const cpfLimpo = value.replace(/\D/g, '');
-      if (cpfLimpo.length === 11) {
-        buscarClientePorCPF(cpfLimpo);
+    // PRIORIDADE 5: Validação de entrada em formulários
+    if (name === 'name') {
+      // Trim e limitar comprimento
+      const trimmed = value.trim();
+      if (trimmed.length > 100) return;
+      setFormData({ ...formData, [name]: trimmed });
+    } else if (name === 'phone') {
+      // Apenas números e caracteres de formatação
+      const cleaned = value.replace(/[^\d\-\(\)\s]/g, '');
+      if (cleaned.length > 20) return;
+      setFormData({ ...formData, [name]: cleaned });
+    } else if (name === 'birth') {
+      // Formato DD/MM/AAAA
+      const cleaned = value.replace(/\D/g, '');
+      if (cleaned.length > 8) return;
+      let formatted = cleaned;
+      if (cleaned.length >= 2) formatted = cleaned.slice(0, 2) + '/' + cleaned.slice(2);
+      if (cleaned.length >= 4) formatted = cleaned.slice(0, 2) + '/' + cleaned.slice(2, 4) + '/' + cleaned.slice(4);
+      setFormData({ ...formData, [name]: formatted });
+    } else if (name === 'cpf') {
+      // Apenas números
+      const cleaned = value.replace(/\D/g, '');
+      if (cleaned.length > 11) return;
+      let formatted = cleaned;
+      if (cleaned.length >= 3) formatted = cleaned.slice(0, 3) + '.' + cleaned.slice(3);
+      if (cleaned.length >= 6) formatted = cleaned.slice(0, 3) + '.' + cleaned.slice(3, 6) + '.' + cleaned.slice(6);
+      if (cleaned.length >= 9) formatted = cleaned.slice(0, 3) + '.' + cleaned.slice(3, 6) + '.' + cleaned.slice(6, 9) + '-' + cleaned.slice(9);
+      setFormData({ ...formData, [name]: formatted });
+
+      // Se mudou o CPF, buscar cliente
+      if (cleaned.length === 11) {
+        buscarClientePorCPF(cleaned);
       } else {
         setClienteExistente(null);
         setSessoesPacote(null);
       }
+    } else {
+      setFormData({ ...formData, [name]: value });
     }
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     
-    const cpfLimpo = formData.cpf.replace(/\D/g, '');
+    const cpfLimpo = limparCPF(formData.cpf);
 
-    console.log('[AgendamentoDados] Dados no momento do envio:', {
-      nome: formData.name,
-      cpf: cpfLimpo,
-      telefone: formData.phone,
-      itemSelecionado,
-      clienteExistente: clienteExistente?.id || null
-    });
+    // PRIORIDADE 1: Validar CPF com dígito verificador
+    if (!validarCPF(cpfLimpo)) {
+      alert('CPF inválido. Verifique o número digitado.');
+      return;
+    }
 
     if (!cpfLimpo || cpfLimpo.length !== 11) {
       alert('Por favor, informe um CPF válido com 11 dígitos.');
@@ -166,7 +203,7 @@ export default function AgendamentoDados() {
     }
 
     // Se cliente já foi identificado via busca automática de CPF,
-    // só salvar no localStorage e navegar — sem nova chamada ao banco
+    // só salvar no sessionStorage e navegar — sem nova chamada ao banco
     if (clienteExistente) {
       const clienteAgendamentoData = {
         id: clienteExistente.id,
@@ -176,7 +213,7 @@ export default function AgendamentoDados() {
         isExistente: true,
         sessoesPacote: sessoesPacote
       };
-      localStorage.setItem('cliente_agendamento', JSON.stringify(clienteAgendamentoData));
+      sessionStorage.setItem('cliente_agendamento', JSON.stringify(clienteAgendamentoData));
       navigate('/agendar/horario');
       return;
     }
@@ -190,13 +227,17 @@ export default function AgendamentoDados() {
         birthDate = `${y}-${m}-${d}`;
       }
 
+      // PRIORIDADE 5: Validar entrada antes de enviar
+      const nomeValidado = (formData.name || 'Cliente Sem Nome').trim().slice(0, 100);
+      const telefoneValidado = (formData.phone || '').trim().slice(0, 20);
+
       // Upsert: cria se não existe, atualiza se já existe (conflito no CPF)
       const { data: cliente, error: clienteErr } = await supabase
         .from('clients')
         .upsert(
           {
-            full_name: formData.name || 'Cliente Sem Nome',
-            phone: formData.phone || '',
+            full_name: nomeValidado,
+            phone: telefoneValidado,
             birth_date: birthDate,
             cpf: cpfLimpo
           },
@@ -209,8 +250,7 @@ export default function AgendamentoDados() {
         .single();
 
       if (clienteErr) {
-        console.error('Erro no upsert de cliente:', clienteErr);
-        console.error('Código:', clienteErr.code, '| Detalhes:', clienteErr.details);
+        console.error('[AgendamentoDados] Erro no upsert:', clienteErr.code, clienteErr.message);
         throw clienteErr;
       }
 
@@ -227,13 +267,14 @@ export default function AgendamentoDados() {
         sessoesPacote: null
       };
 
-      localStorage.setItem('cliente_agendamento', JSON.stringify(clienteAgendamentoData));
+      // PRIORIDADE 2: Usar sessionStorage para dados temporários
+      sessionStorage.setItem('cliente_agendamento', JSON.stringify(clienteAgendamentoData));
       
       // Navegar SOMENTE após confirmação do banco
       navigate('/agendar/horario');
 
     } catch (err) {
-      console.error('Erro completo ao processar cliente:', err);
+      console.error('[AgendamentoDados] Erro ao processar cliente:', err.message);
       
       let msg = 'Erro ao processar seus dados. Tente novamente.';
       if (err.code === '23505') msg = 'CPF já cadastrado. Recarregue a página e tente novamente.';

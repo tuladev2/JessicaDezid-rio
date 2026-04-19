@@ -11,7 +11,11 @@ const DIA_NOME_PARA_JS = {
 const DIAS_SEMANA = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
 
 // Converte "HH:MM" em minutos desde meia-noite
-const toMin = (t) => { const [h, m] = t.split(':').map(Number); return h * 60 + m; };
+const toMin = (t) => { 
+  if (!t) return 0; // Retorna 0 se t for null/undefined
+  const [h, m] = t.split(':').map(Number); 
+  return h * 60 + m; 
+};
 
 // Adiciona N minutos a "HH:MM" e retorna "HH:MM"
 const addMin = (t, n) => {
@@ -35,7 +39,10 @@ function buildCalendarMonth(year, month) {
 export default function AgendamentoHorario() {
   const navigate = useNavigate();
 
-  // ── Dados do localStorage ──────────────────────────────────────────────
+  // Scroll para o topo ao entrar na página
+  useEffect(() => {
+    window.scrollTo({ top: 0, behavior: 'instant' });
+  }, []);
   const [itemSelecionado, setItemSelecionado] = useState(null);
   const [clienteAgendamento, setClienteAgendamento] = useState(null);
 
@@ -63,7 +70,7 @@ export default function AgendamentoHorario() {
   useEffect(() => {
     const pacoteRaw = localStorage.getItem('pacote_selecionado');
     const servicoRaw = localStorage.getItem('servico_selecionado');
-    const clienteRaw = localStorage.getItem('cliente_agendamento');
+    const clienteRaw = sessionStorage.getItem('cliente_agendamento');
 
     if (!clienteRaw) {
       navigate(servicoRaw ? '/agendar/dados?origem=servico' : pacoteRaw ? '/agendar/dados?origem=pacote' : '/agendar');
@@ -153,21 +160,35 @@ export default function AgendamentoHorario() {
     const duracao = itemSelecionado.duracao || 60;
     const dateStr = date.toISOString().split('T')[0];
 
-    // Buscar agendamentos do dia
+    // PRIORIDADE 3: Buscar agendamentos com tratamento de erro
     let ocupados = [];
     try {
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from('agendamentos')
         .select('horario_inicio, horario_fim')
         .eq('data', dateStr)
         .neq('status', 'Cancelado');
 
+      if (error) {
+        console.error('[AgendamentoHorario] Erro ao buscar ocupados:', error.message);
+        // Fallback: considerar todos os horários como ocupados se erro
+        setSlotsOcupados([]);
+        setSlots([]);
+        setLoadingSlots(false);
+        alert('Erro ao carregar horários. Tente novamente.');
+        return;
+      }
+
       ocupados = (data || []).map(a => ({
-        inicio: toMin(a.horario_inicio.slice(0, 5)),
-        fim: toMin(a.horario_fim.slice(0, 5)),
+        inicio: toMin(a.horario_inicio?.slice(0, 5) || '00:00'),
+        fim: toMin(a.horario_fim?.slice(0, 5) || '00:00'),
       }));
     } catch (err) {
-      console.warn('[AgendamentoHorario] Erro ao buscar ocupados:', err.message);
+      console.error('[AgendamentoHorario] Erro inesperado ao buscar ocupados:', err.message);
+      setSlots([]);
+      setLoadingSlots(false);
+      alert('Erro ao carregar horários. Tente novamente.');
+      return;
     }
 
     // Gerar slots disponíveis
@@ -234,6 +255,39 @@ export default function AgendamentoHorario() {
       const horarioFim = addMin(selectedTime, itemSelecionado.duracao || 60);
       const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+      // PRIORIDADE 16: Verificação de conflito de agendamento antes de confirmar
+      try {
+        const { data: conflitosCheck, error: conflitosError } = await supabase
+          .from('agendamentos')
+          .select('id')
+          .eq('data', dateStr)
+          .neq('status', 'Cancelado');
+
+        if (conflitosError) throw conflitosError;
+
+        const ocupados = (conflitosCheck || []).map(a => ({
+          inicio: toMin(a.horario_inicio?.slice(0, 5) || '00:00'),
+          fim: toMin(a.horario_fim?.slice(0, 5) || '00:00'),
+        }));
+
+        const slotInicio = toMin(selectedTime);
+        const slotFim = toMin(horarioFim);
+        const temConflito = ocupados.some(o => slotInicio < o.fim && slotFim > o.inicio);
+
+        if (temConflito) {
+          alert('Desculpe, este horário foi ocupado por outro cliente. Por favor, escolha outro horário.');
+          setConfirmando(false);
+          // Recarregar slots
+          carregarSlots(selectedDate);
+          return;
+        }
+      } catch (err) {
+        console.error('[AgendamentoHorario] Erro ao verificar conflito:', err.message);
+        alert('Erro ao verificar disponibilidade. Tente novamente.');
+        setConfirmando(false);
+        return;
+      }
+
       const payload = {
         cliente_id: clienteAgendamento.id,
         data: dateStr,
@@ -252,7 +306,7 @@ export default function AgendamentoHorario() {
 
       // Mock — sem banco
       if (itemSelecionado.isMock || (!payload.servico_id && !payload.plano_pacote_id)) {
-        localStorage.setItem('agendamento_confirmado', JSON.stringify({
+        sessionStorage.setItem('agendamento_confirmado', JSON.stringify({
           id: `sim_${Date.now()}`, cliente_nome: clienteAgendamento.nome,
           procedimento: itemSelecionado.procedimento, data: dateStr,
           horario: selectedTime, valor: itemSelecionado.valor, tipo: itemSelecionado.tipo,
@@ -264,14 +318,14 @@ export default function AgendamentoHorario() {
       const { data: ag, error } = await supabase.from('agendamentos').insert([payload]).select('id').single();
       if (error) throw new Error(`${error.message} (${error.code})`);
 
-      localStorage.setItem('agendamento_confirmado', JSON.stringify({
+      sessionStorage.setItem('agendamento_confirmado', JSON.stringify({
         id: ag.id, cliente_nome: clienteAgendamento.nome,
         procedimento: itemSelecionado.procedimento, data: dateStr,
         horario: selectedTime, valor: itemSelecionado.valor, tipo: itemSelecionado.tipo,
       }));
       navigate('/agendar/confirmado');
     } catch (err) {
-      console.error('[AgendamentoHorario] Erro:', err);
+      console.error('[AgendamentoHorario] Erro ao confirmar:', err.message);
       alert(`Erro ao confirmar agendamento:\n${err.message}`);
       setConfirmando(false);
     }

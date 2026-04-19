@@ -1,169 +1,266 @@
 import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
 
-/**
- * Hook customizado para gerenciar dados do dashboard
- * Busca métricas em tempo real do Supabase
- */
-export const useDashboardData = () => {
-  const [data, setData] = useState({
-    appointmentsToday: 0,
-    appointmentsProgress: '0%',
-    monthlyRevenue: 0,
-    revenueGrowth: '+0% vs mês anterior',
-    newClientsThisMonth: 0,
-    clientsGrowth: '+0% vs mês anterior',
-    returnRate: '0%',
-    returnRateWidth: '0%',
-    weeklyChartData: {
-      appointments: [0, 0, 0, 0, 0, 0, 0],
-      cancellations: [0, 0, 0, 0, 0, 0, 0],
-      labels: ['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb', 'Dom']
-    },
-    upcomingClients: []
+const LABELS_SEMANA = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
+
+const DATA_VAZIA = {
+  appointmentsToday: 0,
+  appointmentsProgress: '0%',
+  monthlyRevenue: 0,
+  newClientsThisMonth: 0,
+  returnRate: 0,
+  returnRateWidth: '0%',
+  weeklyChartData: Array.from({ length: 7 }, (_, i) => {
+    const d = new Date();
+    d.setDate(d.getDate() - (6 - i));
+    return {
+      label: LABELS_SEMANA[d.getDay()],
+      agendamentos: 0,
+      cancelados: 0,
+    };
+  }),
+  upcomingClients: [],
+};
+
+// ── Helpers de data ──────────────────────────────────────────────────────────
+function hoje() {
+  return new Date().toISOString().split('T')[0];
+}
+function inicioMes() {
+  const d = new Date();
+  return new Date(d.getFullYear(), d.getMonth(), 1).toISOString().split('T')[0];
+}
+function fimMes() {
+  const d = new Date();
+  return new Date(d.getFullYear(), d.getMonth() + 1, 0).toISOString().split('T')[0];
+}
+function diasUltimos7() {
+  return Array.from({ length: 7 }, (_, i) => {
+    const d = new Date();
+    d.setDate(d.getDate() - (6 - i));
+    return d.toISOString().split('T')[0];
   });
-  
+}
+
+// ── Queries individuais ──────────────────────────────────────────────────────
+
+async function fetchAgendamentosHoje() {
+  try {
+    const { count, error } = await supabase
+      .from('agendamentos')
+      .select('*', { count: 'exact', head: true })
+      .eq('data', hoje())
+      .in('status', ['Confirmado', 'Concluído', 'Realizado']);
+    if (error) throw error;
+    return count || 0;
+  } catch (err) {
+    console.error('[Dashboard] agendamentos hoje:', err.message);
+    return 0;
+  }
+}
+
+async function fetchFaturamentoMensal() {
+  try {
+    const { data, error } = await supabase
+      .from('agendamentos')
+      .select('valor')
+      .gte('data', inicioMes())
+      .lte('data', fimMes())
+      .in('status', ['Concluído', 'Realizado', 'Pago']);
+    if (error) throw error;
+    return (data || []).reduce((acc, r) => acc + (Number(r.valor) || 0), 0);
+  } catch (err) {
+    console.error('[Dashboard] faturamento mensal:', err.message);
+    return 0;
+  }
+}
+
+async function fetchNovosClientes() {
+  try {
+    const { count, error } = await supabase
+      .from('clients')
+      .select('*', { count: 'exact', head: true })
+      .gte('created_at', inicioMes() + 'T00:00:00');
+    if (error) throw error;
+    return count || 0;
+  } catch (err) {
+    console.error('[Dashboard] novos clientes:', err.message);
+    return 0;
+  }
+}
+
+async function fetchTaxaRetorno() {
+  try {
+    // Busca todos os cliente_id de agendamentos não cancelados
+    const { data, error } = await supabase
+      .from('agendamentos')
+      .select('cliente_id')
+      .neq('status', 'Cancelado');
+    if (error) throw error;
+
+    const contagem = {};
+    (data || []).forEach(({ cliente_id }) => {
+      if (cliente_id) contagem[cliente_id] = (contagem[cliente_id] || 0) + 1;
+    });
+
+    const total = Object.keys(contagem).length;
+    const recorrentes = Object.values(contagem).filter(n => n >= 2).length;
+    return total > 0 ? Math.round((recorrentes / total) * 100) : 0;
+  } catch (err) {
+    console.error('[Dashboard] taxa retorno:', err.message);
+    return 0;
+  }
+}
+
+async function fetchGraficoSemanal() {
+  const dias = diasUltimos7();
+  try {
+    // Uma única query para os últimos 7 dias
+    const { data, error } = await supabase
+      .from('agendamentos')
+      .select('data, status')
+      .gte('data', dias[0])
+      .lte('data', dias[6]);
+
+    if (error) throw error;
+
+    return dias.map((dateStr) => {
+      const d = new Date(dateStr + 'T00:00:00');
+      const registros = (data || []).filter(r => r.data === dateStr);
+      return {
+        label: LABELS_SEMANA[d.getDay()],
+        agendamentos: registros.filter(r => r.status !== 'Cancelado').length,
+        cancelados: registros.filter(r => r.status === 'Cancelado').length,
+      };
+    });
+  } catch (err) {
+    console.error('[Dashboard] gráfico semanal:', err.message);
+    return dias.map((dateStr) => {
+      const d = new Date(dateStr + 'T00:00:00');
+      return { label: LABELS_SEMANA[d.getDay()], agendamentos: 0, cancelados: 0 };
+    });
+  }
+}
+
+async function fetchProximosAgendamentos() {
+  try {
+    const { data, error } = await supabase
+      .from('agendamentos')
+      .select(`
+        id,
+        data,
+        horario_inicio,
+        status,
+        notas,
+        clients ( full_name, avatar_url ),
+        planos_pacotes ( nome_pacote, procedimento )
+      `)
+      .gte('data', hoje())
+      .in('status', ['Confirmado', 'Remarcado'])
+      .order('data', { ascending: true })
+      .order('horario_inicio', { ascending: true })
+      .limit(4);
+
+    if (error) throw error;
+
+    return (data || []).map(appt => ({
+      id: appt.id,
+      name: appt.clients?.full_name || 'Cliente',
+      avatar: appt.clients?.avatar_url || 'https://cdn-icons-png.flaticon.com/512/1154/1154448.png',
+      procedure:
+        appt.planos_pacotes?.procedimento ||
+        appt.planos_pacotes?.nome_pacote ||
+        appt.notas ||
+        'Procedimento',
+      time: appt.horario_inicio?.slice(0, 5) || '00:00',
+      date: appt.data,
+      confirmed: appt.status === 'Confirmado',
+      dimmed: appt.status === 'Remarcado',
+    }));
+  } catch (err) {
+    console.error('[Dashboard] próximos agendamentos:', err.message);
+    return [];
+  }
+}
+
+// ── Hook principal ───────────────────────────────────────────────────────────
+export const useDashboardData = () => {
+  const [data, setData] = useState(DATA_VAZIA);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  // refreshingMetric: null | 'hoje' | 'faturamento' | 'clientes' | 'retorno'
+  const [refreshingMetric, setRefreshingMetric] = useState(null);
 
-  const fetchDashboardData = useCallback(async () => {
+  const fetchAll = useCallback(async () => {
     setLoading(true);
     setError(null);
-    
     try {
-      const today = new Date().toISOString().split('T')[0];
-      const startOfMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString();
-      const startOfWeek = new Date();
-      startOfWeek.setDate(startOfWeek.getDate() - 6);
-      const weekStart = startOfWeek.toISOString().split('T')[0];
-
-      // 1. Agendamentos Hoje
-      const { count: appointmentsToday } = await supabase
-        .from('appointments')
-        .select('*', { count: 'exact', head: true })
-        .eq('appointment_date', today)
-        .neq('status', 'Cancelado');
-
-      // 2. Faturamento Mensal
-      const { data: monthlyAppointments } = await supabase
-        .from('appointments')
-        .select('total_value_charged')
-        .gte('appointment_date', startOfMonth)
-        .neq('status', 'Cancelado');
-
-      const monthlyRevenue = monthlyAppointments?.reduce((acc, curr) => 
-        acc + (curr.total_value_charged || 0), 0) || 0;
-
-      // 3. Novos Clientes este Mês
-      const { count: newClientsThisMonth } = await supabase
-        .from('clients')
-        .select('*', { count: 'exact', head: true })
-        .gte('created_at', startOfMonth);
-
-      // 4. Taxa de Retorno (clientes com mais de 1 agendamento)
-      const { data: clientsWithMultipleAppointments } = await supabase
-        .from('appointments')
-        .select('client_id')
-        .neq('status', 'Cancelado');
-
-      const clientCounts = {};
-      clientsWithMultipleAppointments?.forEach(appt => {
-        clientCounts[appt.client_id] = (clientCounts[appt.client_id] || 0) + 1;
-      });
-
-      const returningClients = Object.values(clientCounts).filter(count => count > 1).length;
-      const totalClients = Object.keys(clientCounts).length;
-      const returnRate = totalClients > 0 ? Math.round((returningClients / totalClients) * 100) : 0;
-
-      // 5. Dados do Gráfico Semanal
-      const weeklyData = [];
-      for (let i = 6; i >= 0; i--) {
-        const date = new Date();
-        date.setDate(date.getDate() - i);
-        const dateStr = date.toISOString().split('T')[0];
-        
-        const { count: dayAppointments } = await supabase
-          .from('appointments')
-          .select('*', { count: 'exact', head: true })
-          .eq('appointment_date', dateStr)
-          .neq('status', 'Cancelado');
-
-        const { count: dayCancellations } = await supabase
-          .from('appointments')
-          .select('*', { count: 'exact', head: true })
-          .eq('appointment_date', dateStr)
-          .eq('status', 'Cancelado');
-
-        weeklyData.push({
-          appointments: dayAppointments || 0,
-          cancellations: dayCancellations || 0
-        });
-      }
-
-      // 6. Próximos Agendamentos
-      const { data: upcomingAppointments } = await supabase
-        .from('appointments')
-        .select(`
-          id,
-          appointment_date,
-          start_time,
-          status,
-          clients ( full_name, avatar_url ),
-          services ( name )
-        `)
-        .gte('appointment_date', today)
-        .neq('status', 'Cancelado')
-        .order('appointment_date', { ascending: true })
-        .order('start_time', { ascending: true })
-        .limit(4);
-
-      const formattedUpcomingClients = upcomingAppointments?.map(appt => ({
-        id: appt.id,
-        name: appt.clients?.full_name || 'Cliente Oculto',
-        avatar: appt.clients?.avatar_url || 'https://cdn-icons-png.flaticon.com/512/1154/1154448.png',
-        procedure: appt.services?.name || 'Serviço sob Consulta',
-        time: appt.start_time?.substring(0, 5) || '00:00',
-        date: appt.appointment_date,
-        confirmed: appt.status === 'Confirmado' || appt.status === 'Concluído',
-        dimmed: appt.status === 'Remarcado'
-      })) || [];
-
-      // Calcular crescimento (simulado por enquanto)
-      const revenueGrowth = monthlyRevenue > 0 ? '+12% vs mês anterior' : 'Sem dados anteriores';
-      const clientsGrowth = newClientsThisMonth > 0 ? 'Crescimento constante' : 'Sem novos clientes';
+      const [hoje_, faturamento, novosClientes, taxaRetorno, grafico, proximos] =
+        await Promise.all([
+          fetchAgendamentosHoje(),
+          fetchFaturamentoMensal(),
+          fetchNovosClientes(),
+          fetchTaxaRetorno(),
+          fetchGraficoSemanal(),
+          fetchProximosAgendamentos(),
+        ]);
 
       setData({
-        appointmentsToday: appointmentsToday || 0,
-        appointmentsProgress: appointmentsToday > 0 ? `${Math.min(appointmentsToday * 10, 100)}%` : '0%',
-        monthlyRevenue,
-        revenueGrowth,
-        newClientsThisMonth: newClientsThisMonth || 0,
-        clientsGrowth,
-        returnRate: `${returnRate}%`,
-        returnRateWidth: `${returnRate}%`,
-        weeklyChartData: {
-          appointments: weeklyData.map(d => d.appointments),
-          cancellations: weeklyData.map(d => d.cancellations),
-          labels: ['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb', 'Dom']
-        },
-        upcomingClients: formattedUpcomingClients
+        appointmentsToday: hoje_,
+        appointmentsProgress: `${Math.min(hoje_ * 10, 100)}%`,
+        monthlyRevenue: faturamento,
+        newClientsThisMonth: novosClientes,
+        returnRate: taxaRetorno,
+        returnRateWidth: `${taxaRetorno}%`,
+        weeklyChartData: grafico,
+        upcomingClients: proximos,
       });
-
     } catch (err) {
-      console.error('Erro ao buscar dados do dashboard:', err);
+      console.error('[Dashboard] fetchAll:', err.message);
       setError('Erro ao carregar dados. Tente novamente.');
     } finally {
       setLoading(false);
     }
   }, []);
 
-  const refetch = useCallback(() => {
-    fetchDashboardData();
-  }, [fetchDashboardData]);
+  // Refresh individual de uma métrica
+  const refreshMetric = useCallback(async (metric) => {
+    setRefreshingMetric(metric);
+    try {
+      switch (metric) {
+        case 'hoje': {
+          const v = await fetchAgendamentosHoje();
+          setData(prev => ({ ...prev, appointmentsToday: v, appointmentsProgress: `${Math.min(v * 10, 100)}%` }));
+          break;
+        }
+        case 'faturamento': {
+          const v = await fetchFaturamentoMensal();
+          setData(prev => ({ ...prev, monthlyRevenue: v }));
+          break;
+        }
+        case 'clientes': {
+          const v = await fetchNovosClientes();
+          setData(prev => ({ ...prev, newClientsThisMonth: v }));
+          break;
+        }
+        case 'retorno': {
+          const v = await fetchTaxaRetorno();
+          setData(prev => ({ ...prev, returnRate: v, returnRateWidth: `${v}%` }));
+          break;
+        }
+        default:
+          await fetchAll();
+      }
+    } catch (err) {
+      console.error(`[Dashboard] refresh ${metric}:`, err.message);
+    } finally {
+      setRefreshingMetric(null);
+    }
+  }, [fetchAll]);
 
-  useEffect(() => {
-    fetchDashboardData();
-  }, [fetchDashboardData]);
+  const refetch = useCallback(() => fetchAll(), [fetchAll]);
 
-  return { data, loading, error, refetch };
+  useEffect(() => { fetchAll(); }, [fetchAll]);
+
+  return { data, loading, error, refetch, refreshMetric, refreshingMetric };
 };

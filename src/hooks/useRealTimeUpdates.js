@@ -49,15 +49,41 @@ export const useDashboardRealTime = (onUpdate) => {
     }, 1000); // Aguarda 1 segundo antes de atualizar
   }, [onUpdate]);
 
-  useRealTimeUpdates('appointments', throttledUpdate);
-  useRealTimeUpdates('clients', throttledUpdate);
-  
-  // Cleanup no unmount
   useEffect(() => {
+    if (!onUpdate) return;
+
+    // Escutar mudanças em appointments
+    const appointmentsSubscription = supabase
+      .channel('realtime:appointments')
+      .on('postgres_changes', 
+        { 
+          event: '*', 
+          schema: 'public', 
+          table: 'appointments' 
+        },
+        () => throttledUpdate()
+      )
+      .subscribe();
+
+    // Escutar mudanças em clients
+    const clientsSubscription = supabase
+      .channel('realtime:clients')
+      .on('postgres_changes', 
+        { 
+          event: '*', 
+          schema: 'public', 
+          table: 'clients' 
+        },
+        () => throttledUpdate()
+      )
+      .subscribe();
+
     return () => {
+      appointmentsSubscription.unsubscribe();
+      clientsSubscription.unsubscribe();
       if (window.dashboardUpdateTimeout) {
         clearTimeout(window.dashboardUpdateTimeout);
       }
     };
-  }, []);
+  }, [throttledUpdate, onUpdate]);
 };
