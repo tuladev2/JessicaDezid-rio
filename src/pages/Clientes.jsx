@@ -92,15 +92,15 @@ export default function Clientes() {
         .from('prontuarios')
         .select('*')
         .eq('client_id', clienteId)
-        .single();
+        .maybeSingle();
 
       // PGRST116 = nenhum registro encontrado (normal para cliente novo)
-      // 406 / PGRST200 = tabela não existe ainda — tratar silenciosamente
+      // Outros erros de schema/tabela: tratar silenciosamente
       if (prontuarioError) {
-        const ignorar = ['PGRST116', 'PGRST200'].includes(prontuarioError.code) ||
-                        prontuarioError.message?.includes('406') ||
+        const ignorar = ['PGRST116', 'PGRST200', 'PGRST204'].includes(prontuarioError.code) ||
                         prontuarioError.message?.includes('relation') ||
-                        prontuarioError.message?.includes('does not exist');
+                        prontuarioError.message?.includes('does not exist') ||
+                        prontuarioError.message?.includes('schema cache');
         if (!ignorar) throw prontuarioError;
       }
 

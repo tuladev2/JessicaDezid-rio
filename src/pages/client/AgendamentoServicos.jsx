@@ -25,6 +25,11 @@ export default function AgendamentoServicos() {
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState(false);
 
+  // Scroll para o topo ao entrar na página
+  useEffect(() => {
+    window.scrollTo({ top: 0, behavior: 'instant' });
+  }, []);
+
   useEffect(() => {
     async function fetchServices() {
       try {

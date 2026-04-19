@@ -3,8 +3,24 @@ import { useAuth } from '../lib/AuthContext';
 import { supabase } from '../lib/supabase';
 import { adminUser } from '../data/mockData';
 
+// Hook para buscar foto de perfil da clínica
+function useFotoPerfil() {
+  const [foto, setFoto] = useState(null);
+  useEffect(() => {
+    supabase
+      .from('configuracoes_clinica')
+      .select('foto_perfil_url, nome_clinica')
+      .maybeSingle()
+      .then(({ data }) => {
+        if (data?.foto_perfil_url) setFoto(data);
+      });
+  }, []);
+  return foto;
+}
+
 export default function TopBar({ placeholder = 'Buscar clientes ou procedimentos...' }) {
   const { session } = useAuth();
+  const perfilClinica = useFotoPerfil();
   const [profileDropdownOpen, setProfileDropdownOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState([]);
@@ -133,10 +149,9 @@ export default function TopBar({ placeholder = 'Buscar clientes ou procedimentos
   // Handler para ações do perfil
   const handleProfileAction = (action) => {
     setProfileDropdownOpen(false);
-
     switch (action) {
       case 'perfil':
-        window.location.href = '/admin/configuracoes';
+        window.location.href = '/admin/perfil';
         break;
       case 'configuracoes':
         window.location.href = '/admin/configuracoes';
@@ -208,7 +223,9 @@ export default function TopBar({ placeholder = 'Buscar clientes ou procedimentos
 
         <div className="flex items-center gap-2 lg:gap-4 border-l border-outline-variant/20 pl-2 lg:pl-5 relative" ref={profileRef}>
           <div className="hidden lg:flex flex-col items-end">
-            <p className="text-xs font-semibold text-on-surface leading-tight">Administrador</p>
+            <p className="text-xs font-semibold text-on-surface leading-tight">
+              {perfilClinica?.nome_clinica || 'Administrador'}
+            </p>
             <p className="text-[10px] text-secondary leading-tight truncate max-w-[140px]">
               {session?.user?.email || 'Sem login'}
             </p>
@@ -221,7 +238,7 @@ export default function TopBar({ placeholder = 'Buscar clientes ou procedimentos
             <img
               alt="Perfil"
               className="w-8 h-8 lg:w-9 lg:h-9 rounded-full object-cover border-2 border-primary/20"
-              src={adminUser.avatar}
+              src={perfilClinica?.foto_perfil_url || adminUser.avatar}
             />
             <span className="material-symbols-outlined text-outline text-sm hidden lg:block">
               {profileDropdownOpen ? 'expand_less' : 'expand_more'}

@@ -166,7 +166,7 @@ export default function Agendas() {
       });
 
     } catch (err) {
-      console.error('Erro ao buscar agendamentos:', err);
+      console.error('[Agendas] Erro ao buscar agendamentos:', err.message);
       showNotification('Erro ao carregar agendamentos', 'error');
     } finally {
       setLoading(false);
@@ -202,7 +202,7 @@ export default function Agendas() {
       setDetailsModalOpen(false);
       fetchAppointments(); // Recarregar dados
     } catch (err) {
-      console.error('Erro ao atualizar agendamento:', err);
+      console.error('[Agendas] Erro ao atualizar agendamento:', err.message);
       showNotification('Erro ao atualizar agendamento', 'error');
     }
   };
@@ -223,7 +223,7 @@ export default function Agendas() {
       setDetailsModalOpen(false);
       fetchAppointments(); // Recarregar dados
     } catch (err) {
-      console.error('Erro ao cancelar agendamento:', err);
+      console.error('[Agendas] Erro ao cancelar agendamento:', err.message);
       showNotification('Erro ao cancelar agendamento', 'error');
     }
   };
@@ -310,10 +310,10 @@ export default function Agendas() {
             </div>
           )}
 
-          {/* Mobile: Seletor de Dia */}
+          {/* Mobile: Seletor de Dia com scroll horizontal */}
           {isMobile && (
-            <div className="border-b border-outline-variant/20 p-4">
-              <div className="flex gap-2 overflow-x-auto">
+            <div className="border-b border-outline-variant/20 p-4 overflow-x-auto">
+              <div className="flex gap-2 min-w-min">
                 {weekDates.map((date, i) => (
                   <button
                     key={i}

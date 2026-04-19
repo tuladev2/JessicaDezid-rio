@@ -8,9 +8,7 @@ export default function Sidebar() {
   const location = useLocation();
 
   const handleAgendamentoSuccess = () => {
-    // Callback quando agendamento for criado com sucesso
-    console.log('Agendamento criado com sucesso!');
-    // Pode disparar um evento para atualizar o dashboard
+    // Disparar evento para atualizar o dashboard
     window.dispatchEvent(new CustomEvent('agendamento-criado'));
   };
 

@@ -2,7 +2,7 @@
   "name": "Jessica Dezidério",
   "short_name": "JD Estética",
   "description": "Santuário de beleza e estética premium — agende seu momento de cuidado.",
-  "start_url": "/",
+  "start_url": "/login",
   "scope": "/",
   "display": "standalone",
   "orientation": "portrait",

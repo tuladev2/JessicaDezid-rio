@@ -219,43 +219,53 @@ export default function Configuracoes() {
           {/* Horário de Funcionamento */}
           <div className="bg-surface-container-lowest rounded-2xl p-6 lg:p-8 editorial-shadow">
             <h3 className="font-serif text-lg text-on-surface mb-6">Horário de Funcionamento</h3>
-            <div className="space-y-4">
+            <div className="space-y-3">
               {horarios.map((item, i) => (
                 <div
                   key={item.dia}
-                  className={`flex items-center justify-between p-4 rounded-xl transition-all ${
+                  className={`rounded-xl transition-all ${
                     item.ativo ? 'bg-primary/5' : 'bg-surface-container-low opacity-50'
                   }`}
                 >
-                  <div className="flex items-center gap-4 w-40">
-                    {/* Toggle */}
-                    <button
-                      onClick={() => toggleDia(i)}
-                      className={`relative w-10 h-5 rounded-full transition-colors ${item.ativo ? 'bg-primary' : 'bg-outline-variant'}`}
-                    >
-                      <div className={`absolute w-4 h-4 bg-white rounded-full top-0.5 transition-all ${item.ativo ? 'right-0.5' : 'left-0.5'}`} />
-                    </button>
-                    <p className="text-sm text-on-surface font-medium">{item.dia}</p>
+                  {/* Linha principal: toggle + nome do dia */}
+                  <div className="flex items-center justify-between p-3 pb-2">
+                    <div className="flex items-center gap-3">
+                      {/* Toggle */}
+                      <button
+                        onClick={() => toggleDia(i)}
+                        className={`relative flex-shrink-0 w-10 h-5 rounded-full transition-colors ${item.ativo ? 'bg-primary' : 'bg-outline-variant'}`}
+                      >
+                        <div className={`absolute w-4 h-4 bg-white rounded-full top-0.5 transition-all ${item.ativo ? 'right-0.5' : 'left-0.5'}`} />
+                      </button>
+                      <p className="text-sm text-on-surface font-medium">{item.dia}</p>
+                    </div>
+                    {!item.ativo && (
+                      <span className="text-xs text-outline italic">Fechado</span>
+                    )}
                   </div>
 
-                  {item.ativo ? (
-                    <div className="flex items-center gap-3">
+                  {/* Linha de horários — só aparece quando ativo */}
+                  {item.ativo && (
+                    <div className="flex items-center gap-2 px-3 pb-3 pl-[52px]">
                       <input
                         type="time"
                         value={item.inicio}
                         onChange={(e) => atualizarHorario(i, 'inicio', e.target.value)}
-                        className="bg-transparent border-0 border-b border-outline-variant text-sm text-on-surface focus:border-primary focus:ring-0 w-24"
+                        className="bg-white border border-outline-variant/40 rounded-lg text-sm text-on-surface focus:border-primary focus:ring-0 focus:outline-none px-2 py-1.5 w-full max-w-[110px]"
                       />
-                      <span className="text-xs text-secondary">até</span>
+                      <span className="text-xs text-secondary flex-shrink-0">até</span>
                       <input
                         type="time"
                         value={item.fim}
                         onChange={(e) => atualizarHorario(i, 'fim', e.target.value)}
-                        className="bg-transparent border-0 border-b border-outline-variant text-sm text-on-surface focus:border-primary focus:ring-0 w-24"
+                        className="bg-white border border-outline-variant/40 rounded-lg text-sm text-on-surface focus:border-primary focus:ring-0 focus:outline-none px-2 py-1.5 w-full max-w-[110px]"
                       />
+                      {item.inicio && item.fim && (
+                        <span className="text-[10px] text-secondary flex-shrink-0 hidden sm:block">
+                          {calcularHoras(item.inicio, item.fim).toFixed(1)}h
+                        </span>
+                      )}
                     </div>
-                  ) : (
-                    <span className="text-xs text-outline italic">Fechado</span>
                   )}
                 </div>
               ))}
