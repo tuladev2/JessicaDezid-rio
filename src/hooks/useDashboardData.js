@@ -1,5 +1,89 @@
-import { useState, useEffect, useCallback } from 'react';
+import React from 'react';
 import { supabase } from '../lib/supabase';
+
+// Move hook to the top to help with line mapping diagnostics
+export const useDashboardData = () => {
+  const [data, setData] = React.useState(DATA_VAZIA);
+  const [loading, setLoading] = React.useState(true);
+  const [error, setError] = React.useState(null);
+  const [refreshingMetric, setRefreshingMetric] = React.useState(null);
+
+  const fetchAll = React.useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const results = await Promise.allSettled([
+        fetchAgendamentosHoje(),
+        fetchFaturamentoMensal(),
+        fetchNovosClientes(),
+        fetchTaxaRetorno(),
+        fetchGraficoSemanal(),
+        fetchProximosAgendamentos(),
+      ]);
+
+      const [hoje_, faturamento, novosClientes, taxaRetorno, grafico, proximos] = results.map(r => 
+        r.status === 'fulfilled' ? r.value : null
+      );
+
+      setData({
+        appointmentsToday: hoje_ ?? 0,
+        appointmentsProgress: `${Math.min((hoje_ ?? 0) * 10, 100)}%`,
+        monthlyRevenue: faturamento ?? 0,
+        newClientsThisMonth: novosClientes ?? 0,
+        returnRate: taxaRetorno ?? 0,
+        returnRateWidth: `${taxaRetorno ?? 0}%`,
+        weeklyChartData: grafico ?? DATA_VAZIA.weeklyChartData,
+        upcomingClients: proximos ?? [],
+      });
+    } catch (err) {
+      console.error('[Dashboard] fetchAll critial error:', err.message);
+      setError('Erro ao carregar dados do dashboard.');
+      setData(DATA_VAZIA);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  const refreshMetric = React.useCallback(async (metric) => {
+    setRefreshingMetric(metric);
+    try {
+      switch (metric) {
+        case 'hoje': {
+          const v = await fetchAgendamentosHoje();
+          setData(prev => ({ ...prev, appointmentsToday: v, appointmentsProgress: `${Math.min(v * 10, 100)}%` }));
+          break;
+        }
+        case 'faturamento': {
+          const v = await fetchFaturamentoMensal();
+          setData(prev => ({ ...prev, monthlyRevenue: v }));
+          break;
+        }
+        case 'clientes': {
+          const v = await fetchNovosClientes();
+          setData(prev => ({ ...prev, newClientsThisMonth: v }));
+          break;
+        }
+        case 'retorno': {
+          const v = await fetchTaxaRetorno();
+          setData(prev => ({ ...prev, returnRate: v, returnRateWidth: `${v}%` }));
+          break;
+        }
+        default:
+          await fetchAll();
+      }
+    } catch (err) {
+      console.error(`[Dashboard] refresh ${metric}:`, err.message);
+    } finally {
+      setRefreshingMetric(null);
+    }
+  }, [fetchAll]);
+
+  const refetch = React.useCallback(() => fetchAll(), [fetchAll]);
+
+  React.useEffect(() => { fetchAll(); }, [fetchAll]);
+
+  return { data, loading, error, refetch, refreshMetric, refreshingMetric };
+};
 
 const LABELS_SEMANA = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
 
@@ -43,7 +127,6 @@ function diasUltimos7() {
 }
 
 // ── Queries individuais ──────────────────────────────────────────────────────
-
 async function fetchAgendamentosHoje() {
   try {
     const { count, error } = await supabase
@@ -91,7 +174,6 @@ async function fetchNovosClientes() {
 
 async function fetchTaxaRetorno() {
   try {
-    // Busca todos os cliente_id de agendamentos não cancelados
     const { data, error } = await supabase
       .from('agendamentos')
       .select('cliente_id')
@@ -115,7 +197,6 @@ async function fetchTaxaRetorno() {
 async function fetchGraficoSemanal() {
   const dias = diasUltimos7();
   try {
-    // Uma única query para os últimos 7 dias
     const { data, error } = await supabase
       .from('agendamentos')
       .select('data, status')
@@ -182,85 +263,3 @@ async function fetchProximosAgendamentos() {
     return [];
   }
 }
-
-// ── Hook principal ───────────────────────────────────────────────────────────
-export const useDashboardData = () => {
-  const [data, setData] = useState(DATA_VAZIA);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
-  // refreshingMetric: null | 'hoje' | 'faturamento' | 'clientes' | 'retorno'
-  const [refreshingMetric, setRefreshingMetric] = useState(null);
-
-  const fetchAll = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const [hoje_, faturamento, novosClientes, taxaRetorno, grafico, proximos] =
-        await Promise.all([
-          fetchAgendamentosHoje(),
-          fetchFaturamentoMensal(),
-          fetchNovosClientes(),
-          fetchTaxaRetorno(),
-          fetchGraficoSemanal(),
-          fetchProximosAgendamentos(),
-        ]);
-
-      setData({
-        appointmentsToday: hoje_,
-        appointmentsProgress: `${Math.min(hoje_ * 10, 100)}%`,
-        monthlyRevenue: faturamento,
-        newClientsThisMonth: novosClientes,
-        returnRate: taxaRetorno,
-        returnRateWidth: `${taxaRetorno}%`,
-        weeklyChartData: grafico,
-        upcomingClients: proximos,
-      });
-    } catch (err) {
-      console.error('[Dashboard] fetchAll:', err.message);
-      setError('Erro ao carregar dados. Tente novamente.');
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  // Refresh individual de uma métrica
-  const refreshMetric = useCallback(async (metric) => {
-    setRefreshingMetric(metric);
-    try {
-      switch (metric) {
-        case 'hoje': {
-          const v = await fetchAgendamentosHoje();
-          setData(prev => ({ ...prev, appointmentsToday: v, appointmentsProgress: `${Math.min(v * 10, 100)}%` }));
-          break;
-        }
-        case 'faturamento': {
-          const v = await fetchFaturamentoMensal();
-          setData(prev => ({ ...prev, monthlyRevenue: v }));
-          break;
-        }
-        case 'clientes': {
-          const v = await fetchNovosClientes();
-          setData(prev => ({ ...prev, newClientsThisMonth: v }));
-          break;
-        }
-        case 'retorno': {
-          const v = await fetchTaxaRetorno();
-          setData(prev => ({ ...prev, returnRate: v, returnRateWidth: `${v}%` }));
-          break;
-        }
-        default:
-          await fetchAll();
-      }
-    } catch (err) {
-      console.error(`[Dashboard] refresh ${metric}:`, err.message);
-    } finally {
-      setRefreshingMetric(null);
-    }
-  }, [fetchAll]);
-
-  const refetch = useCallback(() => fetchAll(), [fetchAll]);
-
-  useEffect(() => { fetchAll(); }, [fetchAll]);
-
-  return { data, loading, error, refetch, refreshMetric, refreshingMetric };
-};
