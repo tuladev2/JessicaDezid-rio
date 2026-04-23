@@ -322,7 +322,7 @@ export default function AgendamentoDados() {
                   {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(
                     itemSelecionado.valor_total || itemSelecionado.preco || 0
                   )}
-                  {itemSelecionado.tipo === 'pacote' && ' • 6 Sessões'}
+                  {itemSelecionado.tipo === 'pacote' && ' • Sessões'}
                 </p>
               </div>
             </div>
@@ -441,7 +441,7 @@ export default function AgendamentoDados() {
                 <p className="font-label text-[10px] tracking-[0.2em] uppercase text-[#82756d]/70">Resumo da sessão</p>
                 <p className="serif-regular text-[#4A3728]">
                   {itemSelecionado
-                    ? `${itemSelecionado.procedimento || itemSelecionado.nome}${itemSelecionado.tipo === 'pacote' ? ' • Pacote 6 Sessões' : ' • Avulso'}`
+                    ? `${itemSelecionado.procedimento || itemSelecionado.nome}${itemSelecionado.tipo === 'pacote' ? ' • Pacote de Sessões' : ' • Avulso'}`
                     : 'Procedimento Selecionado'}
                 </p>
                 {clienteExistente && sessoesPacote > 0 && (

@@ -40,8 +40,7 @@ export default function AgendamentoServicos() {
           .from('services')
           .select('id, name, description, image_url, price_single, price_package, is_active')
           .eq('is_active', true)
-          .order('created_at', { ascending: true })
-          .limit(6);
+          .order('created_at', { ascending: true });
 
         if (error) throw error;
 
@@ -200,7 +199,7 @@ export default function AgendamentoServicos() {
           >
             <div className="absolute inset-0 bg-[#4A3728]/5 opacity-0 group-hover:opacity-100 transition-opacity"></div>
             <span className="relative font-label tracking-[0.2em] text-[11px] uppercase text-[#4A3728] font-bold">
-              Ver Todos os Pacotes de 6 Sessões
+              Ver Todos os Pacotes de Sessões
             </span>
           </Link>
           <p className="mt-8 font-body text-[11px] text-[#4A3728] tracking-widest uppercase opacity-60">

@@ -1,14 +1,14 @@
-import React from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
 
 // Move hook to the top to help with line mapping diagnostics
 export const useDashboardData = () => {
-  const [data, setData] = React.useState(DATA_VAZIA);
-  const [loading, setLoading] = React.useState(true);
-  const [error, setError] = React.useState(null);
-  const [refreshingMetric, setRefreshingMetric] = React.useState(null);
+  const [data, setData] = useState(DATA_VAZIA);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [refreshingMetric, setRefreshingMetric] = useState(null);
 
-  const fetchAll = React.useCallback(async () => {
+  const fetchAll = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
@@ -44,7 +44,7 @@ export const useDashboardData = () => {
     }
   }, []);
 
-  const refreshMetric = React.useCallback(async (metric) => {
+  const refreshMetric = useCallback(async (metric) => {
     setRefreshingMetric(metric);
     try {
       switch (metric) {
@@ -78,9 +78,9 @@ export const useDashboardData = () => {
     }
   }, [fetchAll]);
 
-  const refetch = React.useCallback(() => fetchAll(), [fetchAll]);
+  const refetch = useCallback(() => fetchAll(), [fetchAll]);
 
-  React.useEffect(() => { fetchAll(); }, [fetchAll]);
+  useEffect(() => { fetchAll(); }, [fetchAll]);
 
   return { data, loading, error, refetch, refreshMetric, refreshingMetric };
 };
@@ -133,7 +133,7 @@ async function fetchAgendamentosHoje() {
       .from('agendamentos')
       .select('*', { count: 'exact', head: true })
       .eq('data', hoje())
-      .in('status', ['Confirmado', 'Concluído', 'Realizado']);
+      .in('status', ['Confirmado', 'Concluído', 'Realizado', 'Em atendimento', 'Pendente']);
     if (error) throw error;
     return count || 0;
   } catch (err) {
@@ -237,7 +237,7 @@ async function fetchProximosAgendamentos() {
         planos_pacotes ( nome_pacote, procedimento )
       `)
       .gte('data', hoje())
-      .in('status', ['Confirmado', 'Remarcado'])
+      .in('status', ['Confirmado', 'Remarcado', 'Pendente', 'Em atendimento'])
       .order('data', { ascending: true })
       .order('horario_inicio', { ascending: true })
       .limit(4);

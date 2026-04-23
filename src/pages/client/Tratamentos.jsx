@@ -84,7 +84,7 @@ export default function Tratamentos() {
       {/* Hero Section */}
       <header className="mb-24 flex flex-col items-center text-center">
         <span className="font-label text-[10px] tracking-[0.4em] uppercase text-[#775841] mb-6">Inovação em Estética</span>
-        <h1 className="font-headline italic text-5xl md:text-7xl text-[#4A3728] mb-8 max-w-3xl leading-tight">Pacotes de 6 Sessões</h1>
+        <h1 className="font-headline italic text-5xl md:text-7xl text-[#4A3728] mb-8 max-w-3xl leading-tight">Pacotes de Sessões</h1>
         <p className="font-body text-lg text-[#4A3728]/80 max-w-xl leading-relaxed">
           A tecnologia mais avançada do mercado para uma pele impecável. Menos sessões, maior conforto e resultados definitivos para todos os tipos de pele.
         </p>
@@ -118,7 +118,7 @@ export default function Tratamentos() {
                   <tr className="text-left border-b border-[#4A3728]/10">
                     <th className="pb-6 font-label text-[10px] tracking-widest uppercase text-[#4A3728]/60">Área / Procedimento</th>
                     <th className="pb-6 px-4 font-label text-[10px] tracking-widest uppercase text-[#4A3728]/60">Valor Avulso</th>
-                    <th className="pb-6 text-right font-label text-[10px] tracking-widest uppercase text-[#4A3728]">Pacote (6x)</th>
+                    <th className="pb-6 text-right font-label text-[10px] tracking-widest uppercase text-[#4A3728]">Pacote</th>
                   </tr>
                 </thead>
                 <tbody className="font-body text-[#4A3728]">

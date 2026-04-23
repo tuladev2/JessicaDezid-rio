@@ -465,7 +465,7 @@ export default function Pacotes() {
           <div>
             <p className="text-xs tracking-[0.2em] uppercase text-secondary mb-1">Gestão de Planos</p>
             <h2 className="font-serif text-2xl lg:text-3xl text-on-surface">
-              Pacotes {quantidadeSessoes}x
+              Pacotes
             </h2>
           </div>
           {/* Abas mobile */}

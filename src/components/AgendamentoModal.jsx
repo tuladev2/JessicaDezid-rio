@@ -133,18 +133,24 @@ export default function AgendamentoModal({
         clientId = newClient.id;
       }
 
-      // 3. Criar agendamento
+      // 3. Criar agendamento na tabela unificada 'agendamentos'
+      const [startH, startM] = formData.startTime.split(':').map(Number);
+      const totalMinutes = startH * 60 + startM + formData.serviceDuration;
+      const endH = Math.floor(totalMinutes / 60);
+      const endM = totalMinutes % 60;
+      const horarioFim = `${endH.toString().padStart(2, '0')}:${endM.toString().padStart(2, '0')}`;
+
       const { error: appointmentError } = await supabase
-        .from('appointments')
+        .from('agendamentos')
         .insert({
-          client_id: clientId,
-          service_id: formData.serviceId,
-          appointment_date: formData.appointmentDate,
-          start_time: formData.startTime,
-          duration_minutes: formData.serviceDuration,
-          status: 'Agendado',
-          total_value_charged: formData.servicePrice,
-          notes: formData.notes || null,
+          cliente_id: clientId,
+          servico_id: formData.serviceId,
+          data: formData.appointmentDate,
+          horario_inicio: formData.startTime,
+          horario_fim: horarioFim,
+          status: 'Pendente',
+          valor: formData.servicePrice,
+          notas: formData.notes || null,
           created_at: new Date().toISOString()
         });
 

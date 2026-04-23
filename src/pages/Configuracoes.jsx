@@ -142,10 +142,9 @@ export default function Configuracoes() {
   const salvarAlteracoes = async () => {
     setSalvando(true);
     try {
-      // Upsert horários (usa dia como chave de conflito)
+      // 1. Upsert horários (usa dia como chave de conflito)
       const horariosPayload = horarios.map(h => ({
         dia: h.dia,
-        // Converter string vazia para null — Supabase rejeita "" em colunas TIME
         inicio: h.ativo && h.inicio?.trim() ? h.inicio.trim() : null,
         fim:    h.ativo && h.fim?.trim()    ? h.fim.trim()    : null,
         ativo: h.ativo,
@@ -157,17 +156,41 @@ export default function Configuracoes() {
 
       if (errHorarios) throw errHorarios;
 
-      // Upsert regras (linha única com tipo='regras')
+      // 2. Upsert regras (linha única com tipo='regras')
+      const rulesPayload = { 
+        tipo: 'regras', 
+        intervalo: parseInt(regras.intervalo) || 0, 
+        antecedencia: parseInt(regras.antecedencia) || 0 
+      };
+
+      console.log('[Config] Salvando regras:', rulesPayload);
+
       const { error: errRegras } = await supabase
         .from('config_agenda')
-        .upsert({ tipo: 'regras', intervalo: Number(regras.intervalo), antecedencia: Number(regras.antecedencia) }, { onConflict: 'tipo' });
+        .upsert(rulesPayload, { onConflict: 'tipo' });
 
       if (errRegras) throw errRegras;
 
       showNotification('Configurações salvas com sucesso!', 'success');
+      
+      // Recarregar para garantir que os dados do banco estão sincronizados
+      // (Isso ajuda a confirmar que o 'intervalo' persistiu)
+      setTimeout(async () => {
+        const { data } = await supabase.from('config_agenda').select('*');
+        if (data) {
+           const regrasDb = data.find(r => r.tipo === 'regras');
+           if (regrasDb) {
+             setRegras({ 
+               intervalo: String(regrasDb.intervalo || 0), 
+               antecedencia: String(regrasDb.antecedencia || 0) 
+             });
+           }
+        }
+      }, 500);
+
     } catch (err) {
       console.error('Erro ao salvar:', err);
-      showNotification('Erro ao salvar configurações.', 'error');
+      showNotification(`Erro ao salvar: ${err.message || 'Erro desconhecido'}`, 'error');
     } finally {
       setSalvando(false);
     }

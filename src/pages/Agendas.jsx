@@ -188,21 +188,21 @@ export default function Agendas() {
     setWeekOffset(prev => prev + direction);
   };
 
-  // Iniciar atendimento
-  const handleStartAttendance = async (appointmentId) => {
+  // Atualizar status de agendamento
+  const handleUpdateStatus = async (appointmentId, newStatus) => {
     try {
       const { error } = await supabase
         .from('agendamentos')
-        .update({ status: 'Realizado' })
+        .update({ status: newStatus })
         .eq('id', appointmentId);
 
       if (error) throw error;
       
-      showNotification('Atendimento marcado como realizado!', 'success');
+      showNotification(`Agendamento marcado como ${newStatus.toLowerCase()}!`, 'success');
       setDetailsModalOpen(false);
-      fetchAppointments(); // Recarregar dados
+      fetchAppointments();
     } catch (err) {
-      console.error('[Agendas] Erro ao atualizar agendamento:', err.message);
+      console.error('[Agendas] Erro ao atualizar status:', err.message);
       showNotification('Erro ao atualizar agendamento', 'error');
     }
   };
@@ -378,12 +378,14 @@ export default function Agendas() {
                       <p className="text-xs text-outline mt-1">{apt.time}</p>
                     </div>
                     <div className="flex-shrink-0">
-                      <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                        apt.status === 'confirmed' 
-                          ? 'bg-green-100 text-green-800' 
-                          : 'bg-yellow-100 text-yellow-800'
+                      <span className={`px-2 py-1 rounded-full text-[10px] font-medium ${
+                        apt.status === 'Confirmado' ? 'bg-green-100 text-green-800' :
+                        apt.status === 'Em atendimento' ? 'bg-blue-100 text-blue-800 animate-pulse' :
+                        apt.status === 'Pendente' ? 'bg-yellow-100 text-yellow-800' :
+                        apt.status === 'Rejeitado' ? 'bg-red-100 text-red-800' :
+                        'bg-gray-100 text-gray-800'
                       }`}>
-                        {apt.status === 'confirmed' ? 'Confirmado' : 'Pendente'}
+                        {apt.status || 'Pendente'}
                       </span>
                     </div>
                   </div>
@@ -636,34 +638,59 @@ export default function Agendas() {
               <div>
                 <p className="text-[10px] uppercase tracking-[0.2em] text-secondary mb-2 font-semibold">Status</p>
                 <span className={`inline-block px-3 py-1 rounded-full text-xs font-medium ${
-                  selectedAppointment.status === 'Confirmado' 
-                    ? 'bg-green-100 text-green-800' 
-                    : selectedAppointment.status === 'Realizado'
-                    ? 'bg-blue-100 text-blue-800'
-                    : 'bg-red-100 text-red-800'
+                  selectedAppointment.status === 'Confirmado' ? 'bg-green-100 text-green-800' :
+                  selectedAppointment.status === 'Em atendimento' ? 'bg-blue-100 text-blue-800' :
+                  selectedAppointment.status === 'Realizado' ? 'bg-gray-100 text-gray-600' :
+                  selectedAppointment.status === 'Rejeitado' ? 'bg-red-100 text-red-800' :
+                  'bg-yellow-100 text-yellow-800'
                 }`}>
-                  {selectedAppointment.status}
+                  {selectedAppointment.status || 'Pendente'}
                 </span>
               </div>
             </div>
 
-            {/* Ações */}
-            <div className="mt-8 flex gap-3">
+            <div className="mt-8 grid grid-cols-2 gap-3">
+              {selectedAppointment.status === 'Pendente' && (
+                <>
+                  <button
+                    onClick={() => handleUpdateStatus(selectedAppointment.agendamento_id, 'Confirmado')}
+                    className="py-2.5 bg-green-600 text-white rounded-xl text-[10px] font-semibold tracking-wider uppercase hover:bg-green-700 transition-all"
+                  >
+                    Confirmar
+                  </button>
+                  <button
+                    onClick={() => handleUpdateStatus(selectedAppointment.agendamento_id, 'Rejeitado')}
+                    className="py-2.5 bg-red-600 text-white rounded-xl text-[10px] font-semibold tracking-wider uppercase hover:bg-red-700 transition-all"
+                  >
+                    Rejeitar
+                  </button>
+                </>
+              )}
+              
               {selectedAppointment.status === 'Confirmado' && (
                 <>
                   <button
-                    onClick={() => handleStartAttendance(selectedAppointment.agendamento_id)}
-                    className="flex-1 py-3 bg-green-600 text-white rounded-xl text-xs font-semibold tracking-wider uppercase hover:bg-green-700 transition-all"
+                    onClick={() => handleUpdateStatus(selectedAppointment.agendamento_id, 'Em atendimento')}
+                    className="py-2.5 bg-primary text-on-primary rounded-xl text-[10px] font-semibold tracking-wider uppercase hover:opacity-90 transition-all"
                   >
-                    Marcar como Realizado
+                    Atender agora
                   </button>
                   <button
                     onClick={() => handleCancelAppointment(selectedAppointment.agendamento_id)}
-                    className="flex-1 py-3 bg-red-600 text-white rounded-xl text-xs font-semibold tracking-wider uppercase hover:bg-red-700 transition-all"
+                    className="py-2.5 bg-surface-container text-on-surface rounded-xl text-[10px] font-semibold tracking-wider uppercase hover:bg-surface-container-high transition-all"
                   >
                     Cancelar
                   </button>
                 </>
+              )}
+
+              {selectedAppointment.status === 'Em atendimento' && (
+                <button
+                  onClick={() => handleUpdateStatus(selectedAppointment.agendamento_id, 'Realizado')}
+                  className="col-span-2 py-2.5 bg-green-600 text-white rounded-xl text-[10px] font-semibold tracking-wider uppercase hover:bg-green-700 transition-all"
+                >
+                  Concluir Atendimento
+                </button>
               )}
               <button
                 onClick={() => setDetailsModalOpen(false)}
