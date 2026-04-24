@@ -53,8 +53,8 @@ export default function AgendamentoModal({
     try {
       const { data, error } = await supabase
         .from('services')
-        .select('id, name, category, price, duration_minutes')
-        .eq('active', true)
+        .select('id, name, category, price_single, duration_minutes')
+        .eq('is_active', true)
         .order('category', { ascending: true })
         .order('name', { ascending: true });
 
@@ -81,7 +81,7 @@ export default function AgendamentoModal({
         const selectedService = services.find(s => s.id === value);
         if (selectedService) {
           updated.serviceName = selectedService.name;
-          updated.servicePrice = selectedService.price || 0;
+          updated.servicePrice = selectedService.price_single || 0;
           updated.serviceDuration = selectedService.duration_minutes || 60;
         }
       }
@@ -106,13 +106,13 @@ export default function AgendamentoModal({
     setLoading(true);
     
     try {
-      // 1. Verificar se cliente já existe
+      // 1. Verificar se cliente já existe pelo telefone
       let clientId;
       const { data: existingClient } = await supabase
         .from('clients')
         .select('id')
         .eq('phone', formData.clientPhone)
-        .single();
+        .maybeSingle();
 
       if (existingClient) {
         clientId = existingClient.id;
@@ -124,7 +124,6 @@ export default function AgendamentoModal({
             full_name: formData.clientName,
             phone: formData.clientPhone,
             email: formData.clientEmail || null,
-            created_at: new Date().toISOString()
           })
           .select('id')
           .single();
@@ -314,7 +313,7 @@ export default function AgendamentoModal({
                     <option value="">Selecione um procedimento</option>
                     {services.map((service) => (
                       <option key={service.id} value={service.id}>
-                        {service.name} - R$ {service.price?.toFixed(2) || '0,00'}
+                        {service.name} - R$ {service.price_single?.toFixed(2) || '0,00'}
                       </option>
                     ))}
                   </select>

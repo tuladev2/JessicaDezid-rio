@@ -238,9 +238,10 @@ export const useServicos = (filters = {}) => {
 
       // Verificar se existem agendamentos vinculados
       const { count: appointmentsCount, error: countError } = await supabase
-        .from('appointments')
+        .from('agendamentos')
         .select('*', { count: 'exact', head: true })
-        .eq('service_id', id);
+        .eq('servico_id', id)
+        .neq('status', 'Cancelado');
 
       if (countError) {
         throw new Error(`Erro ao verificar agendamentos: ${countError.message}`);

@@ -1,7 +1,6 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider } from './lib/AuthContext';
 import ProtectedRoute from './components/ProtectedRoute';
-import { TestRLS } from './test-rls';
 
 import AdminLayout from './components/AdminLayout';
 import Login from './pages/Login';
@@ -54,9 +53,6 @@ export default function App() {
               <Route path="perfil" element={<Perfil />} />
             </Route>
           </Route>
-
-          {/* Test Route - Remove after testing */}
-          <Route path="/teste-rls" element={<TestRLS />} />
 
           {/* Default redirect to home page */}
           <Route path="*" element={<Navigate to="/" replace />} />

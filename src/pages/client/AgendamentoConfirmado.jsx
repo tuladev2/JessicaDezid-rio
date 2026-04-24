@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 
 export default function AgendamentoConfirmado() {
   const [confirmado, setConfirmado] = useState(null);
+  const navigate = useNavigate();
 
   // Scroll para o topo ao entrar na página
   useEffect(() => {
@@ -30,6 +31,26 @@ export default function AgendamentoConfirmado() {
     : 'Data a confirmar';
 
   const horario = confirmado?.horario || '--:--';
+
+  // Gerar link para Google Calendar
+  const handleAdicionarCalendario = () => {
+    if (!confirmado?.data || !confirmado?.horario) return;
+
+    const [ano, mes, dia] = confirmado.data.split('-');
+    const [hora, minuto] = confirmado.horario.split(':');
+
+    // Início e fim (assumindo 60 min de duração)
+    const inicio = `${ano}${mes}${dia}T${hora}${minuto}00`;
+    const fimDate = new Date(confirmado.data + 'T' + confirmado.horario);
+    fimDate.setMinutes(fimDate.getMinutes() + 60);
+    const fimStr = fimDate.toISOString().replace(/[-:]/g, '').split('.')[0];
+
+    const titulo = encodeURIComponent(`Agendamento — ${procedimento}`);
+    const detalhes = encodeURIComponent(`Clínica Jessica Dezidério Estética\nProcedimento: ${procedimento}`);
+
+    const url = `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${titulo}&dates=${inicio}/${fimStr}&details=${detalhes}`;
+    window.open(url, '_blank', 'noopener,noreferrer');
+  };
 
   return (
     <main className="flex-grow flex items-center justify-center px-6 py-20 relative bg-background overflow-hidden min-h-[calc(100vh-200px)]">
@@ -75,18 +96,24 @@ export default function AgendamentoConfirmado() {
               <p className="text-sm font-body font-semibold text-[#4A3728]">{procedimento}</p>
             </div>
           </div>
-          <button className="w-full md:w-auto bg-[#4A3728] text-[#FDFCFB] px-8 py-4 rounded-full text-[11px] tracking-widest uppercase font-bold hover:opacity-90 transition-all duration-500 shadow-lg shadow-[#4A3728]/10 whitespace-nowrap">
-            Detalhes
-          </button>
+          <Link
+            to="/"
+            className="w-full md:w-auto bg-[#4A3728] text-[#FDFCFB] px-8 py-4 rounded-full text-[11px] tracking-widest uppercase font-bold hover:opacity-90 transition-all duration-500 shadow-lg shadow-[#4A3728]/10 whitespace-nowrap text-center"
+          >
+            Voltar ao Início
+          </Link>
         </div>
 
         {/* Secondary Actions */}
         <div className="mt-12 flex flex-col items-center gap-6">
-          <a href="#" className="text-[11px] tracking-[0.2em] uppercase text-[#4A3728] font-bold border-b border-[#4A3728]/20 pb-1 hover:border-[#4A3728] transition-all">
-            Adicionar ao Calendário
-          </a>
+          <button
+            onClick={handleAdicionarCalendario}
+            className="text-[11px] tracking-[0.2em] uppercase text-[#4A3728] font-bold border-b border-[#4A3728]/20 pb-1 hover:border-[#4A3728] transition-all"
+          >
+            Adicionar ao Google Calendar
+          </button>
           <p className="text-[10px] tracking-[0.1em] uppercase text-[#82756d]/60 mt-4">
-            Um lembrete foi enviado para seu e-mail e WhatsApp.
+            Guarde esta data com carinho. Até breve!
           </p>
         </div>
       </section>

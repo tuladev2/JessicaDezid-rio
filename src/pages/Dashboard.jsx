@@ -39,7 +39,7 @@ export default function Dashboard() {
           alert(`Cliente: ${r.data.full_name || '—'}\nTelefone: ${r.data.phone || '—'}`);
         else alert(`Erro: ${r.error}`);
       } else if (action === 'reschedule') {
-        alert('Reagendamento em desenvolvimento');
+        window.location.href = '/admin/agendas';
       }
     } catch (err) {
       console.error('[Dashboard] ação cliente:', err.message);

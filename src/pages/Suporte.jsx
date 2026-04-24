@@ -316,7 +316,7 @@ export default function Suporte() {
                       </span>
                     </div>
                     <p className="text-xs text-secondary truncate">
-                      {ticket.total_mensagens} mensagens
+                      {ticket.total_mensagens ?? 0} mensagens
                     </p>
                     <div className="mt-2">
                       <span className={`text-[9px] tracking-wider uppercase px-2 py-0.5 rounded-full font-medium ${

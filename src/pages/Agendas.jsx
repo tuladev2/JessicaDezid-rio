@@ -228,6 +228,24 @@ export default function Agendas() {
     }
   };
 
+  // Iniciar atendimento
+  const handleStartAttendance = async (appointmentId) => {
+    try {
+      const { error } = await supabase
+        .from('agendamentos')
+        .update({ status: 'Em atendimento' })
+        .eq('id', appointmentId);
+
+      if (error) throw error;
+
+      showNotification('Atendimento iniciado!', 'success');
+      fetchAppointments();
+    } catch (err) {
+      console.error('[Agendas] Erro ao iniciar atendimento:', err.message);
+      showNotification('Erro ao iniciar atendimento', 'error');
+    }
+  };
+
   // Clicar em espaço vazio da grade
   const handleGridClick = (dayIndex, hour) => {
     const selectedDate = weekDates[dayIndex];

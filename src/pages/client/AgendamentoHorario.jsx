@@ -259,7 +259,7 @@ export default function AgendamentoHorario() {
       try {
         const { data: conflitosCheck, error: conflitosError } = await supabase
           .from('agendamentos')
-          .select('id')
+          .select('horario_inicio, horario_fim')
           .eq('data', dateStr)
           .neq('status', 'Cancelado');
 
