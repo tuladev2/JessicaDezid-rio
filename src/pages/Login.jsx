@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { spaInterior } from '../data/mockData';
 import { supabase } from '../lib/supabase';
@@ -9,6 +9,19 @@ export default function Login() {
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
+  const [imagemLogin, setImagemLogin] = useState(null);
+
+  // Carregar imagem de login personalizada da clínica
+  useEffect(() => {
+    supabase
+      .from('configuracoes_clinica')
+      .select('imagem_login_url, nome_clinica')
+      .maybeSingle()
+      .then(({ data }) => {
+        if (data?.imagem_login_url) setImagemLogin(data.imagem_login_url);
+      })
+      .catch(() => {}); // silencioso — usa fallback
+  }, []);
 
   const handleLogin = async (e) => {
     e.preventDefault();
@@ -34,7 +47,7 @@ export default function Login() {
       <div className="hidden lg:block lg:w-1/2 relative overflow-hidden">
         <div
           className="absolute inset-0 bg-cover bg-center"
-          style={{ backgroundImage: `url(${spaInterior})` }}
+          style={{ backgroundImage: `url(${imagemLogin || spaInterior})` }}
         >
           <div className="absolute inset-0 bg-gradient-to-r from-[#1a1c1c]/60 to-[#1a1c1c]/20" />
         </div>

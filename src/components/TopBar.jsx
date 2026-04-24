@@ -18,10 +18,81 @@ function useFotoPerfil() {
   return foto;
 }
 
+// Hook para notificações de novos agendamentos
+function useNotificacoes() {
+  const [notificacoes, setNotificacoes] = useState([]);
+  const [naoLidas, setNaoLidas] = useState(0);
+
+  useEffect(() => {
+    // Buscar agendamentos recentes (últimas 24h) ao montar
+    const buscarRecentes = async () => {
+      const ontemISO = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+      const { data } = await supabase
+        .from('agendamentos')
+        .select('id, data, horario_inicio, status, clients(full_name)')
+        .gte('created_at', ontemISO)
+        .order('created_at', { ascending: false })
+        .limit(10);
+
+      if (data && data.length > 0) {
+        const notifs = data.map(a => ({
+          id: a.id,
+          nome: a.clients?.full_name || 'Cliente',
+          data: a.data,
+          horario: a.horario_inicio?.slice(0, 5),
+          lida: true, // já existentes marcadas como lidas
+        }));
+        setNotificacoes(notifs);
+      }
+    };
+
+    buscarRecentes();
+
+    // Escutar novos agendamentos em tempo real
+    const channel = supabase
+      .channel('novos-agendamentos')
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'agendamentos' },
+        async (payload) => {
+          // Buscar nome do cliente
+          const { data: cliente } = await supabase
+            .from('clients')
+            .select('full_name')
+            .eq('id', payload.new.cliente_id)
+            .maybeSingle();
+
+          const novaNotif = {
+            id: payload.new.id,
+            nome: cliente?.full_name || 'Cliente',
+            data: payload.new.data,
+            horario: payload.new.horario_inicio?.slice(0, 5),
+            lida: false,
+          };
+
+          setNotificacoes(prev => [novaNotif, ...prev].slice(0, 10));
+          setNaoLidas(prev => prev + 1);
+        }
+      )
+      .subscribe();
+
+    return () => supabase.removeChannel(channel);
+  }, []);
+
+  const marcarTodasLidas = () => {
+    setNotificacoes(prev => prev.map(n => ({ ...n, lida: true })));
+    setNaoLidas(0);
+  };
+
+  return { notificacoes, naoLidas, marcarTodasLidas };
+}
+
 export default function TopBar({ placeholder = 'Buscar clientes ou procedimentos...' }) {
   const { session } = useAuth();
   const perfilClinica = useFotoPerfil();
+  const { notificacoes, naoLidas, marcarTodasLidas } = useNotificacoes();
   const [profileDropdownOpen, setProfileDropdownOpen] = useState(false);
+  const [notifDropdownOpen, setNotifDropdownOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState([]);
   const [searchLoading, setSearchLoading] = useState(false);
@@ -29,6 +100,7 @@ export default function TopBar({ placeholder = 'Buscar clientes ou procedimentos
 
   const searchRef = useRef(null);
   const profileRef = useRef(null);
+  const notifRef = useRef(null);
   const searchTimeoutRef = useRef(null);
 
   // Fechar dropdowns ao clicar fora
@@ -39,6 +111,9 @@ export default function TopBar({ placeholder = 'Buscar clientes ou procedimentos
       }
       if (profileRef.current && !profileRef.current.contains(event.target)) {
         setProfileDropdownOpen(false);
+      }
+      if (notifRef.current && !notifRef.current.contains(event.target)) {
+        setNotifDropdownOpen(false);
       }
     };
 
@@ -216,10 +291,65 @@ export default function TopBar({ placeholder = 'Buscar clientes ou procedimentos
 
       {/* Direita: notificações + perfil */}
       <div className="flex items-center gap-2 lg:gap-5">
-        <button className="relative w-9 h-9 flex items-center justify-center rounded-full hover:bg-surface-container transition-colors active:scale-95">
-          <span className="material-symbols-outlined text-secondary text-xl">notifications</span>
-          <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-primary rounded-full border-2 border-[#faf9f8]"></span>
-        </button>
+        <div className="relative" ref={notifRef}>
+          <button
+            onClick={() => {
+              setNotifDropdownOpen(!notifDropdownOpen);
+              if (!notifDropdownOpen) marcarTodasLidas();
+            }}
+            className="relative w-9 h-9 flex items-center justify-center rounded-full hover:bg-surface-container transition-colors active:scale-95"
+          >
+            <span className="material-symbols-outlined text-secondary text-xl">notifications</span>
+            {naoLidas > 0 && (
+              <span className="absolute top-1 right-1 min-w-[14px] h-[14px] bg-primary rounded-full border border-[#faf9f8] flex items-center justify-center px-0.5">
+                <span className="text-[8px] text-white font-bold leading-none">{naoLidas > 9 ? '9+' : naoLidas}</span>
+              </span>
+            )}
+          </button>
+
+          {notifDropdownOpen && (
+            <div className="absolute top-full right-0 mt-2 w-64 bg-surface-container-lowest rounded-xl border border-outline-variant/20 shadow-lg z-50 overflow-hidden">
+              {/* Header */}
+              <div className="px-3 py-2.5 border-b border-outline-variant/10 flex items-center justify-between">
+                <p className="text-[11px] font-semibold text-on-surface tracking-widest uppercase">Notificações</p>
+                {naoLidas > 0 && (
+                  <span className="text-[9px] bg-primary/10 text-primary px-1.5 py-0.5 rounded-full font-medium">{naoLidas} nova{naoLidas > 1 ? 's' : ''}</span>
+                )}
+              </div>
+
+              {/* Lista */}
+              <div className="max-h-56 overflow-y-auto divide-y divide-outline-variant/10">
+                {notificacoes.length === 0 ? (
+                  <div className="py-6 text-center">
+                    <span className="material-symbols-outlined text-outline/40 text-2xl block mb-1">notifications_none</span>
+                    <p className="text-[11px] text-secondary">Sem notificações</p>
+                  </div>
+                ) : (
+                  notificacoes.map(notif => (
+                    <div key={notif.id} className={`flex items-center gap-2.5 px-3 py-2.5 ${!notif.lida ? 'bg-primary/5' : ''}`}>
+                      <div className={`w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0 ${!notif.lida ? 'bg-primary/20' : 'bg-surface-container'}`}>
+                        <span className="material-symbols-outlined text-primary" style={{fontSize:'13px'}}>calendar_month</span>
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-[11px] font-medium text-on-surface truncate">{notif.nome}</p>
+                        <p className="text-[10px] text-outline">{notif.data}{notif.horario ? ` · ${notif.horario}` : ''}</p>
+                      </div>
+                      {!notif.lida && <span className="w-1.5 h-1.5 bg-primary rounded-full flex-shrink-0"></span>}
+                    </div>
+                  ))
+                )}
+              </div>
+
+              {/* Footer */}
+              <button
+                onClick={() => { window.location.href = '/admin/agendas'; setNotifDropdownOpen(false); }}
+                className="w-full py-2 text-[10px] text-primary tracking-widest uppercase font-medium hover:bg-primary/5 transition-colors border-t border-outline-variant/10"
+              >
+                Ver agenda
+              </button>
+            </div>
+          )}
+        </div>
 
         <div className="flex items-center gap-2 lg:gap-4 border-l border-outline-variant/20 pl-2 lg:pl-5 relative" ref={profileRef}>
           <div className="hidden lg:flex flex-col items-end">
