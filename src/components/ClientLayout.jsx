@@ -10,7 +10,8 @@ export default function ClientLayout() {
       <ClientNavbar />
 
       {/* Conteúdo principal — max 500px no mobile, sem limite no desktop */}
-      <div className="flex-1 w-full max-w-[500px] sm:max-w-none mx-auto">
+      {/* Padding bottom para mobile nav: 120px (nav height + safe area) */}
+      <div className="flex-1 w-full max-w-[500px] sm:max-w-none mx-auto pb-[120px] md:pb-0">
         <Outlet />
       </div>
 

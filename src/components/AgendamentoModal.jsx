@@ -147,7 +147,7 @@ export default function AgendamentoModal({
           data: formData.appointmentDate,
           horario_inicio: formData.startTime,
           horario_fim: horarioFim,
-          status: 'Pendente',
+          status: 'Confirmado', // ✅ Valor válido conforme constraint
           valor: formData.servicePrice,
           notas: formData.notes || null,
           created_at: new Date().toISOString()
