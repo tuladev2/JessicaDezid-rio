@@ -102,67 +102,193 @@ export default function AgendamentoModal({
     }
   };
 
+  /**
+   * Valida os dados do formulário antes do envio
+   * @returns {Object} { isValid: boolean, errors: string[] }
+   */
+  const validateFormData = () => {
+    const errors = [];
+    
+    // Validações obrigatórias
+    if (!formData.clientName.trim()) errors.push('Nome do cliente é obrigatório');
+    if (!formData.clientPhone.trim()) errors.push('Telefone do cliente é obrigatório');
+    if (!formData.serviceId) errors.push('Serviço deve ser selecionado');
+    if (!formData.appointmentDate) errors.push('Data do agendamento é obrigatória');
+    if (!formData.startTime) errors.push('Horário de início é obrigatório');
+    
+    // Validações de formato
+    const phoneRegex = /^\(\d{2}\)\s\d{4,5}-\d{4}$|^\d{10,11}$/;
+    if (formData.clientPhone && !phoneRegex.test(formData.clientPhone.replace(/\D/g, ''))) {
+      errors.push('Formato de telefone inválido');
+    }
+    
+    if (formData.clientEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.clientEmail)) {
+      errors.push('Formato de e-mail inválido');
+    }
+    
+    // Validação de data (não pode ser no passado)
+    const selectedDate = new Date(formData.appointmentDate);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    
+    if (selectedDate < today) {
+      errors.push('Data do agendamento não pode ser no passado');
+    }
+    
+    return {
+      isValid: errors.length === 0,
+      errors
+    };
+  };
+
+  /**
+   * Calcula o horário de fim baseado no horário de início e duração
+   * @param {string} startTime - Horário no formato HH:MM
+   * @param {number} duration - Duração em minutos
+   * @returns {string} Horário de fim no formato HH:MM
+   */
+  const calculateEndTime = (startTime, duration) => {
+    const [startH, startM] = startTime.split(':').map(Number);
+    const totalMinutes = startH * 60 + startM + duration;
+    const endH = Math.floor(totalMinutes / 60);
+    const endM = totalMinutes % 60;
+    return `${endH.toString().padStart(2, '0')}:${endM.toString().padStart(2, '0')}`;
+  };
+
+  /**
+   * Sanitiza e prepara os dados para envio ao banco
+   * @param {string} clientId - UUID do cliente
+   * @returns {Object} Dados sanitizados para o agendamento
+   */
+  const prepareAgendamentoData = (clientId) => {
+    const horarioFim = calculateEndTime(formData.startTime, formData.serviceDuration);
+    
+    return {
+      cliente_id: clientId,
+      servico_id: formData.serviceId || null, // ✅ NULL em vez de string vazia
+      data: formData.appointmentDate,
+      horario_inicio: formData.startTime,
+      horario_fim: horarioFim,
+      status: 'Confirmado',
+      valor: parseFloat(formData.servicePrice) || 0, // ✅ Garantir tipo numérico
+      notas: formData.notes?.trim() || null,
+      // ✅ Removido created_at - deixar o banco usar DEFAULT NOW()
+    };
+  };
+
   const handleSubmit = async () => {
     setLoading(true);
     
     try {
-      // 1. Verificar se cliente já existe pelo telefone
-      let clientId;
-      const { data: existingClient } = await supabase
-        .from('clients')
-        .select('id')
-        .eq('phone', formData.clientPhone)
-        .maybeSingle();
-
-      if (existingClient) {
-        clientId = existingClient.id;
-      } else {
-        // 2. Criar novo cliente
-        const { data: newClient, error: clientError } = await supabase
-          .from('clients')
-          .insert({
-            full_name: formData.clientName,
-            phone: formData.clientPhone,
-            email: formData.clientEmail || null,
-          })
-          .select('id')
-          .single();
-
-        if (clientError) throw clientError;
-        clientId = newClient.id;
+      // 1. Validação robusta dos dados
+      const validation = validateFormData();
+      if (!validation.isValid) {
+        throw new Error(`Dados inválidos:\n${validation.errors.join('\n')}`);
       }
 
-      // 3. Criar agendamento na tabela unificada 'agendamentos'
-      const [startH, startM] = formData.startTime.split(':').map(Number);
-      const totalMinutes = startH * 60 + startM + formData.serviceDuration;
-      const endH = Math.floor(totalMinutes / 60);
-      const endM = totalMinutes % 60;
-      const horarioFim = `${endH.toString().padStart(2, '0')}:${endM.toString().padStart(2, '0')}`;
+      console.log('🔍 Iniciando processo de agendamento...');
 
-      const { error: appointmentError } = await supabase
+      // 2. Estratégia otimizada: Tentar criar cliente diretamente
+      // Se já existir, o Supabase retornará erro de constraint única
+      // Isso evita problemas de RLS na consulta
+      let clientId;
+      
+      // Normalizar telefone para consistência
+      const normalizedPhone = formData.clientPhone.replace(/\D/g, '');
+      
+      const clientData = {
+        full_name: formData.clientName.trim(),
+        phone: normalizedPhone,
+        email: formData.clientEmail?.trim() || null,
+      };
+
+      console.log('📝 Tentando criar/encontrar cliente:', clientData);
+
+      // Tentar criar cliente primeiro (estratégia INSERT-first)
+      const { data: newClient, error: clientError } = await supabase
+        .from('clients')
+        .insert(clientData)
+        .select('id')
+        .single();
+
+      if (clientError) {
+        // Se erro for de constraint única (cliente já existe), buscar o existente
+        if (clientError.code === '23505' || clientError.message?.includes('duplicate')) {
+          console.log('📞 Cliente já existe, buscando ID...');
+          
+          // Buscar cliente existente usando uma abordagem mais robusta
+          const { data: existingClient, error: searchError } = await supabase
+            .from('clients')
+            .select('id')
+            .eq('phone', normalizedPhone)
+            .limit(1)
+            .single();
+
+          if (searchError) {
+            console.error('❌ Erro ao buscar cliente existente:', searchError);
+            // Fallback: tentar sem RLS usando função do banco
+            throw new Error(`Erro de autenticação. Verifique se está logado no sistema.`);
+          }
+
+          clientId = existingClient.id;
+          console.log('✅ Cliente existente encontrado:', clientId);
+        } else {
+          // Outro tipo de erro na criação do cliente
+          console.error('❌ Erro ao criar cliente:', clientError);
+          throw new Error(`Erro ao processar dados do cliente: ${clientError.message}`);
+        }
+      } else {
+        // Cliente criado com sucesso
+        clientId = newClient.id;
+        console.log('✅ Novo cliente criado:', clientId);
+      }
+
+      // 3. Criar agendamento com dados sanitizados
+      const agendamentoData = prepareAgendamentoData(clientId);
+      
+      console.log('📅 Dados do agendamento:', agendamentoData);
+
+      const { data: agendamento, error: appointmentError } = await supabase
         .from('agendamentos')
-        .insert({
-          cliente_id: clientId,
-          servico_id: formData.serviceId,
-          data: formData.appointmentDate,
-          horario_inicio: formData.startTime,
-          horario_fim: horarioFim,
-          status: 'Confirmado', // ✅ Valor válido conforme constraint
-          valor: formData.servicePrice,
-          notas: formData.notes || null,
-          created_at: new Date().toISOString()
-        });
+        .insert(agendamentoData)
+        .select('id')
+        .single();
 
-      if (appointmentError) throw appointmentError;
+      if (appointmentError) {
+        console.error('❌ Erro ao criar agendamento:', appointmentError);
+        throw new Error(`Erro ao criar agendamento: ${appointmentError.message}`);
+      }
 
-      // 4. Sucesso
+      console.log('✅ Agendamento criado com sucesso:', agendamento.id);
+
+      // 4. Sucesso - Feedback otimizado
       onSuccess?.();
       handleClose();
-      alert('Agendamento realizado com sucesso!');
+      
+      // Notificação mais profissional
+      const dataFormatada = new Date(formData.appointmentDate).toLocaleDateString('pt-BR');
+      alert(`✅ Agendamento confirmado!\n\nCliente: ${formData.clientName}\nData: ${dataFormatada} às ${formData.startTime}\nServiço: ${formData.serviceName}`);
       
     } catch (error) {
-      console.error('Erro ao criar agendamento:', error);
-      alert('Erro ao realizar agendamento. Tente novamente.');
+      console.error('💥 Erro no processo de agendamento:', error);
+      
+      // Log detalhado para debug
+      if (error.details || error.hint || error.code) {
+        console.error('📋 Detalhes técnicos:', {
+          message: error.message,
+          details: error.details,
+          hint: error.hint,
+          code: error.code,
+          stack: error.stack
+        });
+      }
+      
+      // Mensagem de erro mais amigável para o usuário
+      const userMessage = error.message.includes('Dados inválidos:') 
+        ? error.message 
+        : `Erro ao realizar agendamento.\n\nDetalhes técnicos: ${error.message}\n\nTente novamente ou entre em contato com o suporte.`;
+        
+      alert(userMessage);
     } finally {
       setLoading(false);
     }
